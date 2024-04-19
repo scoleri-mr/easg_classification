@@ -1,0 +1,5 @@
+.vscode/
+wandb/
+__pycache__/
+trained_models/
+data/
