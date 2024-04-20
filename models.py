@@ -82,8 +82,8 @@ class myClassifier(nn.Module):
         return logits_edges, logits_verb, logits_objs
 
 class EdgeClassifier(nn.Module):
-    def __init__(self, object_feats_dim, verb_feats_dim, projection_dim, num_rels, num_verbs, num_objs,
-                 hidden_dim, output_dim, hidden_projection_dim, device = 'cuda', dropout_prob=0.2, edge_creation='mean'):
+    def __init__(self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, 
+                 projection_dim, hidden_dim, output_dim, device = 'cuda', dropout_prob=0.2, edge_creation='mean'):
         super().__init__()
         self.projection_dim = projection_dim
         
