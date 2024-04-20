@@ -42,7 +42,7 @@ class myGCN(nn.Module):
         simply returning the elementwise max between the two nodes that 
         form the edge    
     '''
-    def __init__(self, input_dim, hidden_dim, output_dim, device, edge_creation='mean'):
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device):
         super().__init__()
         self.output_dim = output_dim
         self.device = device
@@ -50,10 +50,11 @@ class myGCN(nn.Module):
     
         self.conv1 = GCNConv(input_dim, hidden_dim)
         self.conv2 = GCNConv(hidden_dim, output_dim)
+        self.dropout = nn.Dropout(dropout_prob)
 
     def forward(self, nodes_features, edge_index):
-        nodes_features = F.relu(self.conv1(nodes_features, edge_index))        
-        nodes_features = F.relu(self.conv2(nodes_features, edge_index))
+        nodes_features = self.dropout(F.relu(self.conv1(nodes_features, edge_index)))
+        nodes_features = self.dropout(F.relu(self.conv2(nodes_features, edge_index)))
         edge_features = self.compute_edge_features(nodes_features, edge_index, self.output_dim)
         return nodes_features, edge_features
     
@@ -82,12 +83,12 @@ class myClassifier(nn.Module):
 
 class EdgeClassifier(nn.Module):
     def __init__(self, object_feats_dim, verb_feats_dim, projection_dim, num_rels, num_verbs, num_objs,
-                 hidden_dim, output_dim, hidden_projection_dim, device = 'cuda'):
+                 hidden_dim, output_dim, hidden_projection_dim, device = 'cuda', dropout_prob=0.2, edge_creation='mean'):
         super().__init__()
         self.projection_dim = projection_dim
         
         self.linear_projection = LinearProjection(verb_feats_dim, object_feats_dim, hidden_projection_dim, projection_dim, device)
-        self.gcn = myGCN(projection_dim, hidden_dim, output_dim, device)
+        self.gcn = myGCN(projection_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device)
         self.cls = myClassifier(output_dim, num_rels, num_verbs, num_objs)
 
     def forward(self, nodes_features, edge_index):
