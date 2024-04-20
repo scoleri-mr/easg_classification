@@ -2,19 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
-import torch
-from torch_geometric.data import Data, Dataset
-from torch_geometric.loader import DataLoader
-from run_easg import EASGData
-from pathlib import Path
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
-from torch import cuda
-from torch.optim import Adam
-import wandb
-from dataset import myEASGDataset
 
 class LinearProjection(nn.Module):
     def __init__(self, verb_dim, obj_dim, hidden_projection_dim, projection_dim, device):
@@ -33,6 +20,7 @@ class LinearProjection(nn.Module):
         self.verb_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
         self.obj_fc1 = nn.Linear(obj_dim, hidden_projection_dim)
         self.obj_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
+        self.bn = nn.BatchNorm1d(hidden_projection_dim)
 
     def forward(self, x):
         new_x = torch.zeros([x.size(0), self.projection_dim])
@@ -40,11 +28,11 @@ class LinearProjection(nn.Module):
         for i,_ in enumerate(x):
             if i==0: 
                 # in edge index the first node is always the verb: take all x[0]
-                temp = F.relu(self.verb_fc1(x[i]))
+                temp = F.relu(self.bn(self.verb_fc1(x[i])))
                 new_x[i] = self.verb_fc2(temp)
             else:
                 # the other nodes are objects: take x[:object_dim]
-                temp = F.relu(self.obj_fc1(x[i][:self.obj_dim]))
+                temp = F.relu(self.bn(self.obj_fc1(x[i][:self.obj_dim])))
                 new_x[i] = self.obj_fc2(temp)
         return new_x
     
@@ -63,43 +51,47 @@ class myGCN(nn.Module):
         self.conv1 = GCNConv(input_dim, hidden_dim)
         self.conv2 = GCNConv(hidden_dim, output_dim)
 
-    def forward(self, x, edge_index):
-        x = F.relu(self.conv1(x, edge_index))        
-        x = F.relu(self.conv2(x, edge_index))
-        edge_features = self.compute_edge_features(x, edge_index, self.output_dim)
-        return edge_features
+    def forward(self, nodes_features, edge_index):
+        nodes_features = F.relu(self.conv1(nodes_features, edge_index))        
+        nodes_features = F.relu(self.conv2(nodes_features, edge_index))
+        edge_features = self.compute_edge_features(nodes_features, edge_index, self.output_dim)
+        return nodes_features, edge_features
     
-    def compute_edge_features(self, x, edge_index, edge_dim):
+    def compute_edge_features(self, nodes_features, edge_index, edge_dim):
         edge_features = torch.zeros([edge_index.size(1), edge_dim])
         edge_features = edge_features.to(self.device)
         for i in range(edge_index.size(1)):
             if self.edge_creation == 'max':
-                edge_features[i] = torch.max(x[edge_index[0][i]], x[edge_index[1][i]])
+                edge_features[i] = torch.max(nodes_features[edge_index[:, i]], dim=0).values
             elif self.edge_creation == 'mean':
-                edge_features[i] = (x[edge_index[0][i]] + x[edge_index[1][i]])/2
+                edge_features[i] = torch.mean(nodes_features[edge_index[:, i]], dim=0)
         return edge_features
 
 class myClassifier(nn.Module):
-    def __init__(self, input_dim, num_classes):
+    def __init__(self, input_dim, num_rels, num_verbs, num_objs):
         super().__init__()
-        self.fc = nn.Linear(input_dim, num_classes)
+        self.fc_edges = nn.Linear(input_dim, num_rels)
+        self.fc_verbs = nn.Linear(input_dim, num_verbs)
+        self.fc_objs = nn.Linear(input_dim, num_objs)
 
-    def forward(self, x):
-        logits = self.fc(x)
-        return logits
+    def forward(self, nodes_features, edge_features):
+        logits_edges = self.fc_edges(edge_features)
+        logits_verb = self.fc_verbs(nodes_features[0])
+        logits_objs = self.fc_objs(nodes_features[1:])
+        return logits_edges, logits_verb, logits_objs
 
 class EdgeClassifier(nn.Module):
-    def __init__(self, object_feats_dim, verb_feats_dim, projection_dim,
-                 hidden_dim, output_dim, hidden_projection_dim, num_relationships, device = 'cuda'):
+    def __init__(self, object_feats_dim, verb_feats_dim, projection_dim, num_rels, num_verbs, num_objs,
+                 hidden_dim, output_dim, hidden_projection_dim, device = 'cuda'):
         super().__init__()
         self.projection_dim = projection_dim
         
         self.linear_projection = LinearProjection(verb_feats_dim, object_feats_dim, hidden_projection_dim, projection_dim, device)
         self.gcn = myGCN(projection_dim, hidden_dim, output_dim, device)
-        self.cls = myClassifier(output_dim, num_relationships)
+        self.cls = myClassifier(output_dim, num_rels, num_verbs, num_objs)
 
-    def forward(self, x, edge_index):
-        x = self.linear_projection(x)
-        x = self.gcn(x, edge_index)
-        x = self.cls(x)
-        return x
+    def forward(self, nodes_features, edge_index):
+        nodes_features = self.linear_projection(nodes_features)
+        nodes_features, edge_features = self.gcn(nodes_features, edge_index)
+        logits_edges, logits_verb, logits_objs = self.cls(nodes_features, edge_features)
+        return logits_edges, logits_verb, logits_objs
