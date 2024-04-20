@@ -15,17 +15,16 @@ import torch.optim.lr_scheduler as lr_scheduler
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument('ann_path', type=str, default='annts_in_new_format/', help='path to annotations')
-    parser.add_argument('data_path', type=str, default='data', help='path to ROI and clip features')
+    parser.add_argument('--ann_path', type=str, default='annts_in_new_format/', help='path to annotations')
+    parser.add_argument('--data_path', type=str, default='data', help='path to ROI and clip features')
     parser.add_argument('--num_epochs', type=int, default=100, help='total number of epochs')
     parser.add_argument('--hidden_proj_dim', type=int, default=1024, help='hidden dimension for linear projection')
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
     parser.add_argument('--hidden_dim', type=int, default=256, help='hidden dimension for the gnn')
     parser.add_argument('--output_dim', type=int, default=128, help='output dimension of the gnn')
     parser.add_argument('--lr_start', type=float, default=0.1, help='starting learning rate')
-    parser.add_argument('--lr_min', type=float, default=0.0005, help='minimum learning rate')
     parser.add_argument('--lr_gamma', type=int, default=0.1, help='gamma parameter for lr scheduler')
-    parser.add_argument('--edge_criterion', type=str, defaul='mean', help='define the criterion for edge creation: elementwise mean/max between two adjacent nodes')
+    parser.add_argument('--edge_criterion', type=str, default='mean', help='define the criterion for edge creation: elementwise mean/max between two adjacent nodes')
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     args = parser.parse_args()
     return args
@@ -35,7 +34,7 @@ def train(train_loader, model, optimizer, scheduler,
           config, 
           num_epochs, device,
           proj_dim, hidden_dim, output_dim, 
-          wandb_log = True):
+          wandb_log = False):
     
     model = model.to(device)
     if wandb_log: wandb.init(project = 'easg_classification', config = config)
@@ -50,15 +49,15 @@ def train(train_loader, model, optimizer, scheduler,
             optimizer.zero_grad()
             out_edges, out_verb, out_objs = model(batch.x, batch.edge_index)  
             l1 = criterion_edges(out_edges, batch.y[0])
-            l2 = criterion_verb(out_verb, batch.y[1])
+            l2 = criterion_verb(out_verb.unsqueeze(0), batch.y[1])
             l3 = criterion_objs(out_objs, batch.y[2])
             loss = l1 + l2 + l3
             loss.backward()
             optimizer.step()
-            wandb.log({"loss": loss})      
-            total_loss += loss.item() * batch.num_graphs
+            if wandb_log: wandb.log({"loss": loss})      
+            total_loss += loss.item()
         scheduler.step()
-        current_lr = scheduler.get_lr()[0]
+        current_lr = scheduler.get_last_lr()[0]
         if wandb_log: wandb.log({"current_lr": current_lr})
         
         # average loss for the epoch
@@ -69,7 +68,7 @@ def train(train_loader, model, optimizer, scheduler,
         else:
             print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
         
-    torch.save(model.state_dict(), f'my_trained_models/edge_classifier{num_epochs}-_mean_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
+    torch.save(model.state_dict(), f'trained_models/edge_classifier{num_epochs}-_mean_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
     if wandb_log: wandb.finish()
 
 def main():
@@ -112,7 +111,7 @@ def main():
                                      args.hidden_proj_dim, args.proj_dim, args.hidden_dim, args.output_dim, 
                                     device, args.dropout_prob, edge_criterion)
     optimizer = Adam(edge_classifier.parameters(), lr=args.lr_start)
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1, min_lr=args.lr_min)
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     criterion_edges = nn.BCEWithLogitsLoss()
     criterion_verb = nn.CrossEntropyLoss()
     criterion_objs = nn.CrossEntropyLoss()
@@ -124,3 +123,6 @@ def main():
           criterion_edges, criterion_verb, criterion_objs, 
           config, args.num_epochs, device, 
           args.proj_dim, args.hidden_dim, args.output_dim)
+
+if __name__ == "__main__":
+    main()

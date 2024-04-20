@@ -4,6 +4,10 @@ import torch
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 
+import torch
+from torch_geometric.data import Data, Dataset
+from torch_geometric.loader import DataLoader
+
 class myEASGDataset(Dataset):
     def __init__(self, data_list):
         self.data_list = data_list
@@ -71,6 +75,8 @@ class myEASGDataset(Dataset):
         obj_feats = data_dict['obj_feats']
         triplets = data_dict['triplets']
         rels = data_dict['rels_vecs']
+        verb_idx = data_dict['verb_idx']
+        obj_indices = data_dict['obj_indices']
 
         # Concatenate clip and object features, pad the object features to match clip features
         clip_features = clip_features.unsqueeze(0)
@@ -80,8 +86,8 @@ class myEASGDataset(Dataset):
         # Create edge index tensor
         edge_index = self.triplets2edge_index(triplets)
 
-        # Create target tensor (edge labels)
-        y = rels
+        # Create target tensors
+        y = (rels, verb_idx, obj_indices)
 
         # Create PyTorch Geometric Data object
         data = Data(x=x, edge_index=edge_index, y=y)
