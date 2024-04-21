@@ -20,7 +20,7 @@ class LinearProjection(nn.Module):
         self.verb_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
         self.obj_fc1 = nn.Linear(obj_dim, hidden_projection_dim)
         self.obj_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
-        self.i_norm = nn.InstanceNorm1d(hidden_projection_dim)
+        self.l_norm = nn.LayerNorm(hidden_projection_dim)
 
     def forward(self, x):
         new_x = torch.zeros([x.size(0), self.projection_dim])
@@ -28,11 +28,11 @@ class LinearProjection(nn.Module):
         for i,_ in enumerate(x):
             if i==0: 
                 # in edge index the first node is always the verb: take all x[0]
-                temp = F.relu(self.i_norm(self.verb_fc1(x[i]).unsqueeze(0)).squeeze(0))
+                temp = F.relu(self.l_norm(self.verb_fc1(x[i]))) # I need the unsqueeze/squeeze because instance norm expects a batch size
                 new_x[i] = self.verb_fc2(temp)
             else:
                 # the other nodes are objects: take x[:object_dim]
-                temp = F.relu(self.i_norm(self.obj_fc1(x[i][:self.obj_dim]).unsqueeze(0)).squeeze(0))
+                temp = F.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim])))
                 new_x[i] = self.obj_fc2(temp)
         return new_x
     
@@ -77,7 +77,7 @@ class myClassifier(nn.Module):
 
     def forward(self, nodes_features, edge_features):
         logits_edges = self.fc_edges(edge_features)
-        logits_verb = self.fc_verbs(nodes_features[0])
+        logits_verb = self.fc_verbs(nodes_features[0])      ## Add max pooling? why?
         logits_objs = self.fc_objs(nodes_features[1:])
         return logits_edges, logits_verb, logits_objs
 
