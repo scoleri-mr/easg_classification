@@ -21,7 +21,7 @@ class LinearProjection(nn.Module):
         self.obj_fc1 = nn.Linear(obj_dim, hidden_projection_dim)
         self.obj_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
         self.l_norm = nn.LayerNorm(hidden_projection_dim)
-        self.l_norm2 = nn.LayerNorm(projection_dim)
+        # self.l_norm2 = nn.LayerNorm(projection_dim)
 
     def forward(self, x):
         new_x = torch.zeros([x.size(0), self.projection_dim])
@@ -30,11 +30,13 @@ class LinearProjection(nn.Module):
             if i==0: 
                 # in edge index the first node is always the verb: take all x[0]
                 temp = F.relu(self.l_norm(self.verb_fc1(x[i])))
-                new_x[i] = self.l_norm2(self.verb_fc2(temp))
+                # new_x[i] = self.l_norm2(self.verb_fc2(temp))
+                new_x[i] = self.verb_fc2(temp)
             else:
                 # the other nodes are objects: take x[:object_dim]
                 temp = F.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim])))
-                new_x[i] = self.l_norm2(self.obj_fc2(temp))
+                # new_x[i] = self.l_norm2(self.obj_fc2(temp))
+                new_x[i] = self.obj_fc2(temp)
         return new_x
     
 class myGCN(nn.Module):

@@ -69,7 +69,8 @@ def train(train_loader, model, optimizer, scheduler,
         else:
             print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
         
-    torch.save(model.state_dict(), f'trained_models/edge_classifier{num_epochs}-_mean_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
+    # torch.save(model.state_dict(), f'trained_models/edge_classifier{num_epochs}-_mean_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
+    torch.save(model.state_dict(), 'prova_bypass_gnn')
     if wandb_log: wandb.finish()
 
 def main():

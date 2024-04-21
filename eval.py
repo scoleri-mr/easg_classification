@@ -51,19 +51,19 @@ def evaluation(dataset_val, model, device):
     recall_easgcls_no = {k: [] for k in list_k}
     for idx in range(len(dataset_val)):
         graph = dataset_val[idx]
-        clip_feat = graph['clip_feat'].unsqueeze(0).to(device)
-        obj_feats = graph['obj_feats'].to(device)
+        clip_feat = graph.x[0].unsqueeze(0).to(device)
+        obj_feats = graph.x[1:].to(device)
 
         with torch.no_grad():
-            out_verb, out_objs, out_rels = model(clip_feat, obj_feats)
-            scores_verb = out_verb[0].detach().cpu().softmax(dim=0)
-            scores_objs = out_objs.detach().cpu().softmax(dim=1)
-            scores_rels = out_rels.detach().cpu().sigmoid()
+            logits_edges, logits_verb, logits_objs = model(clip_feat, obj_feats)
+            scores_verb = logits_verb.detach().cpu().softmax(dim=0)
+            scores_objs = logits_objs.detach().cpu().softmax(dim=1)
+            scores_rels = logits_edges.detach().cpu().sigmoid()
 
-        verb_idx = graph['verb_idx']
-        obj_indices = graph['obj_indices']
-        rels_vecs = graph['rels_vecs']
-        triplets_gt = graph['triplets']
+        verb_idx = dataset_val.get_verb_index(idx).to(device)
+        obj_indices = dataset_val.get_object_indices(idx).to(device)
+        rels_vecs = dataset_val.get_rels(idx).to(device)
+        triplets_gt = dataset_val.get_original_triplets(idx).to(device)
         num_obj = obj_indices.shape[0]
 
         # make triplets for precls
