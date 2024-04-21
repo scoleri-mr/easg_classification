@@ -81,7 +81,7 @@ class myClassifier(nn.Module):
         logits_objs = self.fc_objs(nodes_features[1:])
         return logits_edges, logits_verb, logits_objs
 
-class EdgeClassifier(nn.Module):
+class EASGClassifier(nn.Module):
     def __init__(self, object_feats_dim, verb_feats_dim, 
                  num_rels, num_verbs, num_objs, 
                  hidden_projection_dim, projection_dim, hidden_dim, output_dim, 

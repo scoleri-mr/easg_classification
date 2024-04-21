@@ -6,7 +6,7 @@ from argparse import ArgumentParser
 import torch.optim.lr_scheduler as lr_scheduler
 import wandb
 from utils import set_wandb_config
-from models import EdgeClassifier
+from models import EASGClassifier
 import torch
 from torch import cuda
 from torch.optim import Adam
@@ -22,8 +22,9 @@ def parse_args():
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
     parser.add_argument('--output_dim', type=int, default=512, help='output dimension of the gnn')
-    parser.add_argument('--lr_start', type=float, default=0.1, help='starting learning rate')
-    parser.add_argument('--lr_gamma', type=int, default=0.1, help='gamma parameter for lr scheduler')
+    parser.add_argument('--lr_start', type=float, default=0.01, help='starting learning rate')
+    parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')
+    parser.add_argument('--lr_step_size', type=int, default=20, help='step size for scheduler')
     parser.add_argument('--edge_criterion', type=str, default='mean', help='define the criterion for edge creation: elementwise mean/max between two adjacent nodes')
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     args = parser.parse_args()
@@ -34,7 +35,7 @@ def train(train_loader, model, optimizer, scheduler,
           config, 
           num_epochs, device,
           proj_dim, hidden_dim, output_dim, 
-          wandb_log = False):
+          wandb_log = True):
     
     model = model.to(device)
     if wandb_log: wandb.init(project = 'easg_classification', config = config)
@@ -72,7 +73,7 @@ def train(train_loader, model, optimizer, scheduler,
     if wandb_log: wandb.finish()
 
 def main():
-    # GET DATASET
+    # GET TRAINING DATASET
     args = parse_args()
     with open(args.ann_path + 'verbs.txt') as f:
         verbs = [l.strip() for l in f.readlines()]
@@ -86,8 +87,8 @@ def main():
         rels = [l.strip() for l in f.readlines()]
     num_rels = len(rels)
 
-    path_annts = Path("annts_in_new_format")
-    path_data = Path('data')
+    path_annts = Path(args.ann_path)
+    path_data = Path(args.data_path)
 
     train_original = EASGData(path_annts, path_data, 'train', verbs, objs, rels)
     train_dataset = myEASGDataset(train_original)
@@ -106,17 +107,18 @@ def main():
     else:
         raise Exception('Wrong edge criterion')
     
-    edge_classifier = EdgeClassifier(obj_dim, verb_dim, 
+    edge_classifier = EASGClassifier(obj_dim, verb_dim, 
                                      num_rels, num_verbs, num_objs, 
                                      args.hidden_proj_dim, args.proj_dim, args.hidden_dim, args.output_dim, 
                                     device, args.dropout_prob, edge_criterion)
     optimizer = Adam(edge_classifier.parameters(), lr=args.lr_start)
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
     criterion_edges = nn.BCEWithLogitsLoss()
     criterion_verb = nn.CrossEntropyLoss()
     criterion_objs = nn.CrossEntropyLoss()
     config = set_wandb_config(args.num_epochs, args.hidden_proj_dim, args.proj_dim, 
-                              args.hidden_dim, args.output_dim, batch_size)
+                              args.hidden_dim, args.output_dim, batch_size,
+                              args.lr_start, args.lr_step_size, args.lr_gamma)
 
     # TRAIN THE MODEL
     train(train_loader, edge_classifier, optimizer, scheduler, 
