@@ -21,6 +21,7 @@ class LinearProjection(nn.Module):
         self.obj_fc1 = nn.Linear(obj_dim, hidden_projection_dim)
         self.obj_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
         self.l_norm = nn.LayerNorm(hidden_projection_dim)
+        self.l_norm2 = nn.LayerNorm(projection_dim)
 
     def forward(self, x):
         new_x = torch.zeros([x.size(0), self.projection_dim])
@@ -28,18 +29,18 @@ class LinearProjection(nn.Module):
         for i,_ in enumerate(x):
             if i==0: 
                 # in edge index the first node is always the verb: take all x[0]
-                temp = F.relu(self.l_norm(self.verb_fc1(x[i]))) # I need the unsqueeze/squeeze because instance norm expects a batch size
-                new_x[i] = self.verb_fc2(temp)
+                temp = F.relu(self.l_norm(self.verb_fc1(x[i])))
+                new_x[i] = self.l_norm2(self.verb_fc2(temp))
             else:
                 # the other nodes are objects: take x[:object_dim]
                 temp = F.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim])))
-                new_x[i] = self.obj_fc2(temp)
+                new_x[i] = self.l_norm2(self.obj_fc2(temp))
         return new_x
     
 class myGCN(nn.Module):
     ''' 
         apply two gcn layers to the graph and get the edge features by
-        simply returning the elementwise max between the two nodes that 
+        simply returning the elementwise max or mean between the two nodes that 
         form the edge    
     '''
     def __init__(self, input_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device):
@@ -66,6 +67,12 @@ class myGCN(nn.Module):
                 edge_features[i] = torch.max(nodes_features[edge_index[:, i]], dim=0).values
             elif self.edge_creation == 'mean':
                 edge_features[i] = torch.mean(nodes_features[edge_index[:, i]], dim=0)
+                print(edge_features[i].size())
+            elif self.edge_creation == 'conc':
+                # NOT SUPPORTED YET
+                m = torch.max(nodes_features[edge_index[:, i]], dim=0).values
+                av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
+                edge_features[i] = torch.cat((m,av), dim=0)
         return edge_features
 
 class myClassifier(nn.Module):

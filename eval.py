@@ -17,7 +17,7 @@ from math import ceil
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument('model_path', type=str, help='provide model path and name', required=True)
+    parser.add_argument('model_path', type=str, help='provide model path and name')
     parser.add_argument('--ann_path', type=str, default='annts_in_new_format/', help='path to annotations')
     parser.add_argument('--data_path', type=str, default='data', help='path to ROI and clip features')
     parser.add_argument('--hidden_proj_dim', type=int, default=1024, help='hidden dimension for linear projection')
@@ -25,6 +25,7 @@ def parse_args():
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
     parser.add_argument('--output_dim', type=int, default=512, help='output dimension of the gnn')
     parser.add_argument('--edge_criterion', type=str, default='mean', help='define the criterion for edge creation: elementwise mean/max between two adjacent nodes')
+    parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     args = parser.parse_args()
     return args
 

@@ -35,7 +35,7 @@ def train(train_loader, model, optimizer, scheduler,
           config, 
           num_epochs, device,
           proj_dim, hidden_dim, output_dim, 
-          wandb_log = True):
+          wandb_log = False):
     
     model = model.to(device)
     if wandb_log: wandb.init(project = 'easg_classification', config = config)
