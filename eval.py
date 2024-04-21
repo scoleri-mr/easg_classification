@@ -29,13 +29,16 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def intersect_2d(out, gt):
-    return (out[..., None] == gt.T[None, ...]).all(1)
+from math import ceil
+import torch 
 
 def evaluation(dataset_val, model, device):
     # NB: with significa with constraints (ovvero si vincola il grafo ad avere al massimo
     # una relazione object-verb), no significa No constraint (quindi niente vincolo sul 
     # numero di possibili relazioni.)
+    def intersect_2d(out, gt):
+        return (out[..., None] == gt.T[None, ...]).all(1)
+    
     model.eval()
 
     num_top_verb = 5
@@ -50,15 +53,13 @@ def evaluation(dataset_val, model, device):
     recall_easgcls_with = {k: [] for k in list_k}
     recall_easgcls_no = {k: [] for k in list_k}
     for idx in range(len(dataset_val)):
-        graph = dataset_val[idx]
-        clip_feat = graph.x[0].unsqueeze(0).to(device)
-        obj_feats = graph.x[1:].to(device)
+        graph = dataset_val[idx].to(device)
 
         with torch.no_grad():
-            logits_edges, logits_verb, logits_objs = model(clip_feat, obj_feats)
-            scores_verb = logits_verb.detach().cpu().softmax(dim=0)
-            scores_objs = logits_objs.detach().cpu().softmax(dim=1)
-            scores_rels = logits_edges.detach().cpu().sigmoid()
+            logits_edges, logits_verb, logits_objs = model(graph.x, graph.edge_index)
+            scores_verb = logits_verb.detach().cpu().softmax(dim=0).to(device)
+            scores_objs = logits_objs.detach().cpu().softmax(dim=1).to(device)
+            scores_rels = logits_edges.detach().cpu().sigmoid().to(device)
 
         verb_idx = dataset_val.get_verb_index(idx).to(device)
         obj_indices = dataset_val.get_object_indices(idx).to(device)
@@ -128,12 +129,12 @@ def evaluation(dataset_val, model, device):
         triplets_easg_no = torch.tensor(triplets_easg_no, dtype=torch.long)
 
         # sort the triplets using the averaged scores
-        triplets_pred_with = triplets_pred_with[torch.argsort(torch.tensor(scores_pred_with), descending=True)]
-        triplets_pred_no = triplets_pred_no[torch.argsort(torch.tensor(scores_pred_no), descending=True)]
-        triplets_sg_with = triplets_sg_with[torch.argsort(torch.tensor(scores_sg_with), descending=True)]
-        triplets_sg_no = triplets_sg_no[torch.argsort(torch.tensor(scores_sg_no), descending=True)]
-        triplets_easg_with = triplets_easg_with[torch.argsort(torch.tensor(scores_easg_with), descending=True)]
-        triplets_easg_no = triplets_easg_no[torch.argsort(torch.tensor(scores_easg_no), descending=True)]
+        triplets_pred_with = triplets_pred_with[torch.argsort(torch.tensor(scores_pred_with), descending=True)].to(device)
+        triplets_pred_no = triplets_pred_no[torch.argsort(torch.tensor(scores_pred_no), descending=True)].to(device)
+        triplets_sg_with = triplets_sg_with[torch.argsort(torch.tensor(scores_sg_with), descending=True)].to(device)
+        triplets_sg_no = triplets_sg_no[torch.argsort(torch.tensor(scores_sg_no), descending=True)].to(device)
+        triplets_easg_with = triplets_easg_with[torch.argsort(torch.tensor(scores_easg_with), descending=True)].to(device)
+        triplets_easg_no = triplets_easg_no[torch.argsort(torch.tensor(scores_easg_no), descending=True)].to(device)
 
         out_to_gt_pred_with = intersect_2d(triplets_gt, triplets_pred_with)
         out_to_gt_pred_no = intersect_2d(triplets_gt, triplets_pred_no)
