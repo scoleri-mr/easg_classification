@@ -12,6 +12,7 @@ from torch import cuda
 from torch.optim import Adam
 import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler
+from eval import evaluation
 
 def parse_args():
     parser = ArgumentParser()
@@ -30,7 +31,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def train(train_loader, model, optimizer, scheduler, 
+def train(train_dataset, train_loader, model, optimizer, scheduler, 
           criterion_edges, criterion_verb, criterion_objs,
           config, 
           num_epochs, device,
@@ -66,6 +67,11 @@ def train(train_loader, model, optimizer, scheduler,
         if num_epochs >= 20:
             if epoch%10 == 0:
                 print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
+                recalls = evaluation(train_dataset, model, device)
+                if wandb_log: wandb.log({'recalls': recalls})
+                recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = recalls
+                print(f'with: [({recall_predcls_with[10]:.2f}, {recall_predcls_with[20]:.2f}, {recall_predcls_with[50]:.2f}), ({recall_sgcls_with[10]:.2f}, {recall_sgcls_with[20]:.2f}, {recall_sgcls_with[50]:.2f}), ({recall_easgcls_with[10]:.2f}, {recall_easgcls_with[20]:.2f}, {recall_easgcls_with[50]:.2f})], no: [({recall_predcls_no[10]:.2f}, {recall_predcls_no[20]:.2f}, {recall_predcls_no[50]:.2f}), ({recall_sgcls_no[10]:.2f}, {recall_sgcls_no[20]:.2f}, {recall_sgcls_no[50]:.2f}), ({recall_easgcls_no[10]:.2f}, {recall_easgcls_no[20]:.2f}, {recall_easgcls_no[50]:.2f})]')
+    
         else:
             print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
         
@@ -122,7 +128,7 @@ def main():
                               args.lr_start, args.lr_step_size, args.lr_gamma)
 
     # TRAIN THE MODEL
-    train(train_loader, edge_classifier, optimizer, scheduler, 
+    train(train_dataset, train_loader, edge_classifier, optimizer, scheduler, 
           criterion_edges, criterion_verb, criterion_objs, 
           config, args.num_epochs, device, 
           args.proj_dim, args.hidden_dim, args.output_dim)

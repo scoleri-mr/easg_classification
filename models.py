@@ -69,7 +69,6 @@ class myGCN(nn.Module):
                 edge_features[i] = torch.max(nodes_features[edge_index[:, i]], dim=0).values
             elif self.edge_creation == 'mean':
                 edge_features[i] = torch.mean(nodes_features[edge_index[:, i]], dim=0)
-                print(edge_features[i].size())
             elif self.edge_creation == 'conc':
                 # NOT SUPPORTED YET
                 m = torch.max(nodes_features[edge_index[:, i]], dim=0).values

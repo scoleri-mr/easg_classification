@@ -13,12 +13,14 @@ from torch.optim import Adam
 import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler
 from math import ceil
+import logging
 
 
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument('model_path', type=str, help='provide model path and name')
     parser.add_argument('--ann_path', type=str, default='annts_in_new_format/', help='path to annotations')
+    parser.add_argument('--partition', type=str, default='val', help='dataset partitio to evaluate, use train to check overfitting and val to evaluate the model')
     parser.add_argument('--data_path', type=str, default='data', help='path to ROI and clip features')
     parser.add_argument('--hidden_proj_dim', type=int, default=1024, help='hidden dimension for linear projection')
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
@@ -164,6 +166,8 @@ def evaluation(dataset_val, model, device):
 
 def main():
     # GET EVALUATION DATASET
+    logger = logging.getLogger()
+
     args = parse_args()
     with open(args.ann_path + 'verbs.txt') as f:
         verbs = [l.strip() for l in f.readlines()]
@@ -180,8 +184,8 @@ def main():
     path_annts = Path(args.ann_path)
     path_data = Path(args.data_path)
 
-    val_original = EASGData(path_annts, path_data, 'val', verbs, objs, rels)
-    val_dataset = myEASGDataset(val_original)
+    dataset_original = EASGData(path_annts, path_data, args.partition, verbs, objs, rels)
+    dataset = myEASGDataset(dataset_original)
 
     # LOAD THE MODEL
     if args.edge_criterion == 'mean':
@@ -202,7 +206,9 @@ def main():
     model.load_state_dict(torch.load(args.model_path))
     model = model.to(device)
 
-    evaluation(val_dataset, model, device)
+    recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = evaluation(dataset, model, device)
+    print(f'with: [({recall_predcls_with[10]:.2f}, {recall_predcls_with[20]:.2f}, {recall_predcls_with[50]:.2f}), ({recall_sgcls_with[10]:.2f}, {recall_sgcls_with[20]:.2f}, {recall_sgcls_with[50]:.2f}), ({recall_easgcls_with[10]:.2f}, {recall_easgcls_with[20]:.2f}, {recall_easgcls_with[50]:.2f})], no: [({recall_predcls_no[10]:.2f}, {recall_predcls_no[20]:.2f}, {recall_predcls_no[50]:.2f}), ({recall_sgcls_no[10]:.2f}, {recall_sgcls_no[20]:.2f}, {recall_sgcls_no[50]:.2f}), ({recall_easgcls_no[10]:.2f}, {recall_easgcls_no[20]:.2f}, {recall_easgcls_no[50]:.2f})]')
+    logger.info(f'with: [({recall_predcls_with[10]:.2f}, {recall_predcls_with[20]:.2f}, {recall_predcls_with[50]:.2f}), ({recall_sgcls_with[10]:.2f}, {recall_sgcls_with[20]:.2f}, {recall_sgcls_with[50]:.2f}), ({recall_easgcls_with[10]:.2f}, {recall_easgcls_with[20]:.2f}, {recall_easgcls_with[50]:.2f})], no: [({recall_predcls_no[10]:.2f}, {recall_predcls_no[20]:.2f}, {recall_predcls_no[50]:.2f}), ({recall_sgcls_no[10]:.2f}, {recall_sgcls_no[20]:.2f}, {recall_sgcls_no[50]:.2f}), ({recall_easgcls_no[10]:.2f}, {recall_easgcls_no[20]:.2f}, {recall_easgcls_no[50]:.2f})]')
 
 if __name__ == "__main__":
     main()
