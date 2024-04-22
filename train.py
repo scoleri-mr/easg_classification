@@ -23,8 +23,8 @@ def parse_args():
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
     parser.add_argument('--output_dim', type=int, default=512, help='output dimension of the gnn')
-    parser.add_argument('--scheduler', type=str, help='choose between stepLR, cosineAnnealingLR')
-    parser.add_argument('--cosineAnnealingLR_param', type=int, default=10, help='parameter for lr scheduler when using cosine annealing')
+    parser.add_argument('--scheduler_type', type=str, default='cosine_annealing', help='choose between step, cosine_annealing')
+    parser.add_argument('--cosine_annealing_param', type=int, default=10, help='parameter for lr scheduler when using cosine annealing')
     parser.add_argument('--lr_start', type=float, default=0.01, help='starting learning rate')
     parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')
     parser.add_argument('--lr_step_size', type=int, default=20, help='step size for scheduler')
@@ -81,7 +81,7 @@ def train(train_dataset, train_loader, model, optimizer, scheduler,
         else:
             print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
         
-    torch.save(model.state_dict(), f'trained_models/edge_classifier{num_epochs}-{edge_criterion}_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
+    torch.save(model.state_dict(), f'trained_models/edge_classifier{num_epochs}_{graph_type}_{edge_criterion}_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
     if wandb_log: wandb.finish()
 
 def main():
@@ -129,9 +129,9 @@ def main():
     criterion_edges = nn.BCEWithLogitsLoss()
     criterion_verb = nn.CrossEntropyLoss()
     criterion_objs = nn.CrossEntropyLoss()
-    config = set_wandb_config(args.num_epochs, args.hidden_proj_dim, args.proj_dim, 
-                              args.hidden_dim, args.output_dim, batch_size,
-                              args.lr_start, args.lr_step_size, args.lr_gamma)
+    if args.wandb: config = set_wandb_config(args.num_epochs, args.hidden_proj_dim, args.proj_dim, 
+                              args.hidden_dim, args.output_dim, batch_size, args.scheduler_type,
+                              args.lr_start, args.lr_step_size, args.lr_gamma, args.cosine_annealing_param)
 
     # TRAIN THE MODEL
     train(train_dataset, train_loader, edge_classifier, optimizer, scheduler, 
