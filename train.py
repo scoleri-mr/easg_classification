@@ -125,7 +125,7 @@ def main():
                                     device, args.dropout_prob, edge_criterion, args.graph_type)
     optimizer = Adam(edge_classifier.parameters(), lr=args.lr_start)
     # scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
-    scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.cosineAnnealingLR_param)
+    scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.cosine_nnealing_param)
     criterion_edges = nn.BCEWithLogitsLoss()
     criterion_verb = nn.CrossEntropyLoss()
     criterion_objs = nn.CrossEntropyLoss()
