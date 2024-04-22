@@ -23,11 +23,16 @@ def parse_args():
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
     parser.add_argument('--output_dim', type=int, default=512, help='output dimension of the gnn')
+    parser.add_argument('--scheduler', type=str, help='choose between stepLR, cosineAnnealingLR')
+    parser.add_argument('--cosineAnnealingLR_param', type=int, default=10, help='parameter for lr scheduler when using cosine annealing')
     parser.add_argument('--lr_start', type=float, default=0.01, help='starting learning rate')
     parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')
     parser.add_argument('--lr_step_size', type=int, default=20, help='step size for scheduler')
     parser.add_argument('--edge_criterion', type=str, default='mean', help='define the criterion for edge creation: elementwise mean/max between two adjacent nodes')
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
+    parser.add_argument('--wandb', dest='wandb', action='store_true')
+    parser.add_argument('--no-wandb', dest='wandb', action='store_false')
+    parser.set_defaults(wandb=True)
     args = parser.parse_args()
     return args
 
@@ -36,7 +41,7 @@ def train(train_dataset, train_loader, model, optimizer, scheduler,
           config, 
           num_epochs, device,
           proj_dim, hidden_dim, output_dim, 
-          wandb_log = False):
+          wandb_log):
     
     model = model.to(device)
     if wandb_log: wandb.init(project = 'easg_classification', config = config)
@@ -119,7 +124,8 @@ def main():
                                      args.hidden_proj_dim, args.proj_dim, args.hidden_dim, args.output_dim, 
                                     device, args.dropout_prob, edge_criterion)
     optimizer = Adam(edge_classifier.parameters(), lr=args.lr_start)
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
+    # scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
+    scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.cosineAnnealingLR_param)
     criterion_edges = nn.BCEWithLogitsLoss()
     criterion_verb = nn.CrossEntropyLoss()
     criterion_objs = nn.CrossEntropyLoss()
@@ -131,7 +137,7 @@ def main():
     train(train_dataset, train_loader, edge_classifier, optimizer, scheduler, 
           criterion_edges, criterion_verb, criterion_objs, 
           config, args.num_epochs, device, 
-          args.proj_dim, args.hidden_dim, args.output_dim)
+          args.proj_dim, args.hidden_dim, args.output_dim, args.wandb)
 
 if __name__ == "__main__":
     main()
