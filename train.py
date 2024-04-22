@@ -42,10 +42,10 @@ def train(train_dataset, train_loader, model, optimizer, scheduler,
           config, 
           num_epochs, device,
           proj_dim, hidden_dim, output_dim, 
-          wandb_log, edge_criterion):
+          wandb_log, edge_criterion, graph_type):
     
     model = model.to(device)
-    if wandb_log: wandb.init(project = 'easg_classification_', config = config)
+    if wandb_log: wandb.init(project = f'easg_classification_{graph_type}', config = config)
     
     for epoch in range(num_epochs):
         model.train()
@@ -138,7 +138,7 @@ def main():
           criterion_edges, criterion_verb, criterion_objs, 
           config, args.num_epochs, device, 
           args.proj_dim, args.hidden_dim, args.output_dim, 
-          args.wandb, args.edge_criterion)
+          args.wandb, args.edge_criterion, args.graph_type)
 
 if __name__ == "__main__":
     main()
