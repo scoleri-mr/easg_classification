@@ -81,7 +81,8 @@ def train(train_dataset, train_loader, model, optimizer, scheduler,
         else:
             print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
         
-    torch.save(model.state_dict(), f'trained_models/edge_classifier{num_epochs}_{graph_type}_{edge_criterion}_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
+    torch.save(model.state_dict(), f'trained_models/easg_classifier{num_epochs}_{graph_type}_{edge_criterion}_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
+    print('Model saved!')
     if wandb_log: wandb.finish()
 
 def main():
@@ -129,9 +130,9 @@ def main():
     criterion_edges = nn.BCEWithLogitsLoss()
     criterion_verb = nn.CrossEntropyLoss()
     criterion_objs = nn.CrossEntropyLoss()
-    if args.wandb: config = set_wandb_config(args.num_epochs, args.hidden_proj_dim, args.proj_dim, 
-                              args.hidden_dim, args.output_dim, batch_size, args.scheduler_type,
-                              args.lr_start, args.lr_step_size, args.lr_gamma, args.cosine_annealing_param)
+    config = set_wandb_config(args.num_epochs, args.hidden_proj_dim, args.proj_dim, 
+                        args.hidden_dim, args.output_dim, batch_size, args.scheduler_type,
+                        args.lr_start, args.lr_step_size, args.lr_gamma, args.cosine_annealing_param)
 
     # TRAIN THE MODEL
     train(train_dataset, train_loader, edge_classifier, optimizer, scheduler, 
