@@ -32,7 +32,8 @@ def parse_args():
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     parser.add_argument('--wandb', dest='wandb', action='store_true')
     parser.add_argument('--no-wandb', dest='wandb', action='store_false')
-    parser.set_defaults(wandb=True)
+    parser.add_argument('--graph_type', type=str, default='gat', help='choose between graph layers: gcn, sage, gat')
+    parser.set_defaults(wandb=True) 
     args = parser.parse_args()
     return args
 
@@ -41,10 +42,10 @@ def train(train_dataset, train_loader, model, optimizer, scheduler,
           config, 
           num_epochs, device,
           proj_dim, hidden_dim, output_dim, 
-          wandb_log):
+          wandb_log, edge_criterion):
     
     model = model.to(device)
-    if wandb_log: wandb.init(project = 'easg_classification', config = config)
+    if wandb_log: wandb.init(project = 'easg_classification_', config = config)
     
     for epoch in range(num_epochs):
         model.train()
@@ -80,8 +81,7 @@ def train(train_dataset, train_loader, model, optimizer, scheduler,
         else:
             print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
         
-    # torch.save(model.state_dict(), f'trained_models/edge_classifier{num_epochs}-_mean_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
-    torch.save(model.state_dict(), 'prova_bypass_gnn')
+    torch.save(model.state_dict(), f'trained_models/edge_classifier{num_epochs}-{edge_criterion}_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
     if wandb_log: wandb.finish()
 
 def main():
@@ -122,7 +122,7 @@ def main():
     edge_classifier = EASGClassifier(obj_dim, verb_dim, 
                                      num_rels, num_verbs, num_objs, 
                                      args.hidden_proj_dim, args.proj_dim, args.hidden_dim, args.output_dim, 
-                                    device, args.dropout_prob, edge_criterion)
+                                    device, args.dropout_prob, edge_criterion, args.graph_type)
     optimizer = Adam(edge_classifier.parameters(), lr=args.lr_start)
     # scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
     scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.cosineAnnealingLR_param)
@@ -137,7 +137,8 @@ def main():
     train(train_dataset, train_loader, edge_classifier, optimizer, scheduler, 
           criterion_edges, criterion_verb, criterion_objs, 
           config, args.num_epochs, device, 
-          args.proj_dim, args.hidden_dim, args.output_dim, args.wandb)
+          args.proj_dim, args.hidden_dim, args.output_dim, 
+          args.wandb, args.edge_criterion)
 
 if __name__ == "__main__":
     main()

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv
 
 class LinearProjection(nn.Module):
     def __init__(self, verb_dim, obj_dim, hidden_projection_dim, projection_dim, device):
@@ -76,6 +76,80 @@ class myGCN(nn.Module):
                 edge_features[i] = torch.cat((m,av), dim=0)
         return edge_features
 
+class mySAGE(nn.Module):
+    ''' 
+        apply two gcn layers to the graph and get the edge features by
+        simply returning the elementwise max or mean between the two nodes that 
+        form the edge    
+    '''
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device):
+        super().__init__()
+        self.output_dim = output_dim
+        self.device = device
+        self.edge_creation = edge_creation
+    
+        self.conv1 = SAGEConv(input_dim, hidden_dim)
+        self.conv2 = SAGEConv(hidden_dim, output_dim)
+        self.dropout = nn.Dropout(dropout_prob)
+
+    def forward(self, nodes_features, edge_index):
+        nodes_features = self.dropout(F.relu(self.conv1(nodes_features, edge_index)))
+        nodes_features = self.dropout(F.relu(self.conv2(nodes_features, edge_index)))
+        edge_features = self.compute_edge_features(nodes_features, edge_index, self.output_dim)
+        return nodes_features, edge_features
+    
+    def compute_edge_features(self, nodes_features, edge_index, edge_dim):
+        edge_features = torch.zeros([edge_index.size(1), edge_dim])
+        edge_features = edge_features.to(self.device)
+        for i in range(edge_index.size(1)):
+            if self.edge_creation == 'max':
+                edge_features[i] = torch.max(nodes_features[edge_index[:, i]], dim=0).values
+            elif self.edge_creation == 'mean':
+                edge_features[i] = torch.mean(nodes_features[edge_index[:, i]], dim=0)
+            elif self.edge_creation == 'conc':
+                # NOT SUPPORTED YET
+                m = torch.max(nodes_features[edge_index[:, i]], dim=0).values
+                av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
+                edge_features[i] = torch.cat((m,av), dim=0)
+        return edge_features
+
+class myGAT(nn.Module):
+    ''' 
+        apply two gcn layers to the graph and get the edge features by
+        simply returning the elementwise max or mean between the two nodes that 
+        form the edge    
+    '''
+    def __init__(self, input_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device):
+        super().__init__()
+        self.output_dim = output_dim
+        self.device = device
+        self.edge_creation = edge_creation
+    
+        self.conv1 = GATv2Conv(input_dim, hidden_dim)
+        self.conv2 = GATv2Conv(hidden_dim, output_dim)
+        self.dropout = nn.Dropout(dropout_prob)
+
+    def forward(self, nodes_features, edge_index):
+        nodes_features = self.dropout(F.relu(self.conv1(nodes_features, edge_index)))
+        nodes_features = self.dropout(F.relu(self.conv2(nodes_features, edge_index)))
+        edge_features = self.compute_edge_features(nodes_features, edge_index, self.output_dim)
+        return nodes_features, edge_features
+    
+    def compute_edge_features(self, nodes_features, edge_index, edge_dim):
+        edge_features = torch.zeros([edge_index.size(1), edge_dim])
+        edge_features = edge_features.to(self.device)
+        for i in range(edge_index.size(1)):
+            if self.edge_creation == 'max':
+                edge_features[i] = torch.max(nodes_features[edge_index[:, i]], dim=0).values
+            elif self.edge_creation == 'mean':
+                edge_features[i] = torch.mean(nodes_features[edge_index[:, i]], dim=0)
+            elif self.edge_creation == 'conc':
+                # NOT SUPPORTED YET
+                m = torch.max(nodes_features[edge_index[:, i]], dim=0).values
+                av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
+                edge_features[i] = torch.cat((m,av), dim=0)
+        return edge_features
+
 class myClassifier(nn.Module):
     def __init__(self, input_dim, num_rels, num_verbs, num_objs):
         super().__init__()
@@ -93,16 +167,29 @@ class EASGClassifier(nn.Module):
     def __init__(self, object_feats_dim, verb_feats_dim, 
                  num_rels, num_verbs, num_objs, 
                  hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-                 device = 'cuda', dropout_prob=0.2, edge_creation='mean'):
+                 device = 'cuda', dropout_prob=0.2, edge_creation='mean', graph_type='gat'):
         super().__init__()
         self.projection_dim = projection_dim
+        self.graph_type = graph_type
         
         self.linear_projection = LinearProjection(verb_feats_dim, object_feats_dim, hidden_projection_dim, projection_dim, device)
-        self.gcn = myGCN(projection_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device)
+        if self.graph_type=='gcn':
+            self.gcn = myGCN(projection_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device)
+        elif self.graph_type=='sage':
+            self.sage = mySAGE(projection_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device)
+        elif self.graph_type=='gat':
+            self.gat = myGAT(projection_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device)
+        else:
+            raise Exception('Wrong graph layer type')
         self.cls = myClassifier(output_dim, num_rels, num_verbs, num_objs)
 
     def forward(self, nodes_features, edge_index):
         nodes_features = self.linear_projection(nodes_features)
-        nodes_features, edge_features = self.gcn(nodes_features, edge_index)
+        if self.graph_type=='gcn':
+            nodes_features, edge_features = self.gcn(nodes_features, edge_index)
+        elif self.graph_type=='sage':
+            nodes_features, edge_features = self.sage(nodes_features, edge_index)
+        elif self.graph_type=='gat':
+            nodes_features, edge_features = self.gat(nodes_features, edge_index)
         logits_edges, logits_verb, logits_objs = self.cls(nodes_features, edge_features)
         return logits_edges, logits_verb, logits_objs

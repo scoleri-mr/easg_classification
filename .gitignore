@@ -9,4 +9,5 @@ no_gnn_train.py
 no_gnn_prova.pth
 no_gnn_prova2.pth
 no_gnn_models.py
-no_gnn_10.pth
+no_gnn_30.pth
+no_gnn_100.pth
