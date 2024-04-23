@@ -141,12 +141,9 @@ def main():
     if args.scheduler_type=='cosine_annealing':
         scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.sch_param)
     elif args.scheduler_type=='step':
-        print('here')
         scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
     else:
         raise Exception('Wrong scheduler type')
-    criterion_edges = nn.BCEWithLogitsLoss()
-    scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.cosine_annealing_param)
     criterion_edges = nn.BCEWithLogitsLoss()
     criterion_verb = nn.CrossEntropyLoss()
     criterion_objs = nn.CrossEntropyLoss()
