@@ -37,7 +37,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def train(train_dataset, train_loader, model, optimizer, scheduler, 
+def train(train_dataset, train_loader, validation_dataset, model, optimizer, scheduler, 
           criterion_edges, criterion_verb, criterion_objs,
           config, 
           num_epochs, device,
@@ -45,7 +45,9 @@ def train(train_dataset, train_loader, model, optimizer, scheduler,
           wandb_log, edge_criterion, graph_type):
     
     model = model.to(device)
-    if wandb_log: wandb.init(project = f'easg_classification_{graph_type}', config = config)
+    if wandb_log: 
+        wandb.init(project = f'easg_classification_{graph_type}', config = config)
+        wandb.watch(model, log="all")
     
     for epoch in range(num_epochs):
         model.train()
@@ -73,9 +75,17 @@ def train(train_dataset, train_loader, model, optimizer, scheduler,
         if num_epochs >= 20:
             if epoch%10 == 0:
                 print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
-                recalls = evaluation(train_dataset, model, device)
-                if wandb_log: wandb.log({'recalls': recalls})
+                recalls = evaluation(validation_dataset, model, device)
                 recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = recalls
+                recalls_dict = {
+                    'recall_predcls_with': recall_predcls_with,
+                    'recall_predcls_no': recall_predcls_no,
+                    'recall_sgcls_with': recall_sgcls_with,
+                    'recall_sgcls_no': recall_sgcls_no,
+                    'recall_easgcls_with': recall_easgcls_with,
+                    'recall_easgcls_no': recall_easgcls_no
+                }
+                if wandb_log: wandb.log(recalls_dict)
                 print(f'with: [({recall_predcls_with[10]:.2f}, {recall_predcls_with[20]:.2f}, {recall_predcls_with[50]:.2f}), ({recall_sgcls_with[10]:.2f}, {recall_sgcls_with[20]:.2f}, {recall_sgcls_with[50]:.2f}), ({recall_easgcls_with[10]:.2f}, {recall_easgcls_with[20]:.2f}, {recall_easgcls_with[50]:.2f})], no: [({recall_predcls_no[10]:.2f}, {recall_predcls_no[20]:.2f}, {recall_predcls_no[50]:.2f}), ({recall_sgcls_no[10]:.2f}, {recall_sgcls_no[20]:.2f}, {recall_sgcls_no[50]:.2f}), ({recall_easgcls_no[10]:.2f}, {recall_easgcls_no[20]:.2f}, {recall_easgcls_no[50]:.2f})]')
     
         else:
@@ -108,6 +118,10 @@ def main():
     batch_size = 1
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
+    validation_original = EASGData(path_annts, path_data, args.partition, verbs, objs, rels)
+    validation_dataset = myEASGDataset(validation_original)
+
+
     # DEFINE THE MODEL  AND IT'PARAMETERS
     device = 'cuda' if cuda.is_available() else print('CUDA NOT AVAILABLE')
     obj_dim = 1024                  # original object dimension
@@ -135,7 +149,7 @@ def main():
                         args.lr_start, args.lr_step_size, args.lr_gamma, args.cosine_annealing_param)
 
     # TRAIN THE MODEL
-    train(train_dataset, train_loader, edge_classifier, optimizer, scheduler, 
+    train(train_dataset, train_loader, validation_dataset, edge_classifier, optimizer, scheduler, 
           criterion_edges, criterion_verb, criterion_objs, 
           config, args.num_epochs, device, 
           args.proj_dim, args.hidden_dim, args.output_dim, 
