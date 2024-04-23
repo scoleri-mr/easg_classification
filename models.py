@@ -50,6 +50,7 @@ class myGNN(nn.Module):
         self.output_dim = output_dim
         self.device = device
         self.edge_creation = edge_creation
+        self.layer_type = layer_type
 
         if layer_type=='gcn':
             self.conv1 = GCNConv(input_dim, hidden_dim)
@@ -113,11 +114,6 @@ class EASGClassifier(nn.Module):
 
     def forward(self, nodes_features, edge_index):
         nodes_features = self.linear_projection(nodes_features)
-        if self.graph_type=='gcn':
-            nodes_features, edge_features = self.gcn(nodes_features, edge_index)
-        elif self.graph_type=='sage':
-            nodes_features, edge_features = self.sage(nodes_features, edge_index)
-        elif self.graph_type=='gat':
-            nodes_features, edge_features = self.gat(nodes_features, edge_index)
+        nodes_features, edge_features = self.gnn(nodes_features, edge_index)
         logits_edges, logits_verb, logits_objs = self.cls(nodes_features, edge_features)
         return logits_edges, logits_verb, logits_objs
