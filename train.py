@@ -27,7 +27,7 @@ def parse_args():
     parser.add_argument('--cosine_annealing_param', type=int, default=10, help='parameter for lr scheduler when using cosine annealing')
     parser.add_argument('--lr_start', type=float, default=0.01, help='starting learning rate')
     parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')
-    parser.add_argument('--lr_step_size', type=int, default=20, help='step size for scheduler')
+    parser.add_argument('--lr_step_size', type=int, default=10, help='step size for scheduler')
     parser.add_argument('--edge_criterion', type=str, default='mean', help='define the criterion for edge creation: elementwise mean/max between two adjacent nodes')
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     parser.add_argument('--wandb', dest='wandb', action='store_true')
@@ -138,7 +138,14 @@ def main():
                                      args.hidden_proj_dim, args.proj_dim, args.hidden_dim, args.output_dim, 
                                     device, args.dropout_prob, edge_criterion, args.graph_type)
     optimizer = Adam(edge_classifier.parameters(), lr=args.lr_start)
-    # scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
+    if args.scheduler_type=='cosine_annealing':
+        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.sch_param)
+    elif args.scheduler_type=='step':
+        print('here')
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
+    else:
+        raise Exception('Wrong scheduler type')
+    criterion_edges = nn.BCEWithLogitsLoss()
     scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.cosine_annealing_param)
     criterion_edges = nn.BCEWithLogitsLoss()
     criterion_verb = nn.CrossEntropyLoss()
