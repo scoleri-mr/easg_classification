@@ -73,8 +73,7 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
         # average loss for the epoch
         average_loss = total_loss / count   # correct with batch_size = 1
         if num_epochs >= 20:
-            if epoch%10 == 0:
-                print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
+            if epoch%5 == 0:
                 recalls = evaluation(validation_dataset, model, device)
                 recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = recalls
                 recalls_dict = {
@@ -86,7 +85,7 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
                     'recall_easgcls_no': recall_easgcls_no
                 }
                 if wandb_log: wandb.log(recalls_dict)
-                print(f'with: [({recall_predcls_with[10]:.2f}, {recall_predcls_with[20]:.2f}, {recall_predcls_with[50]:.2f}), ({recall_sgcls_with[10]:.2f}, {recall_sgcls_with[20]:.2f}, {recall_sgcls_with[50]:.2f}), ({recall_easgcls_with[10]:.2f}, {recall_easgcls_with[20]:.2f}, {recall_easgcls_with[50]:.2f})], no: [({recall_predcls_no[10]:.2f}, {recall_predcls_no[20]:.2f}, {recall_predcls_no[50]:.2f}), ({recall_sgcls_no[10]:.2f}, {recall_sgcls_no[20]:.2f}, {recall_sgcls_no[50]:.2f}), ({recall_easgcls_no[10]:.2f}, {recall_easgcls_no[20]:.2f}, {recall_easgcls_no[50]:.2f})]')
+                print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}, with: [({recall_predcls_with[10]:.2f}, {recall_predcls_with[20]:.2f}, {recall_predcls_with[50]:.2f}), ({recall_sgcls_with[10]:.2f}, {recall_sgcls_with[20]:.2f}, {recall_sgcls_with[50]:.2f}), ({recall_easgcls_with[10]:.2f}, {recall_easgcls_with[20]:.2f}, {recall_easgcls_with[50]:.2f})], no: [({recall_predcls_no[10]:.2f}, {recall_predcls_no[20]:.2f}, {recall_predcls_no[50]:.2f}), ({recall_sgcls_no[10]:.2f}, {recall_sgcls_no[20]:.2f}, {recall_sgcls_no[50]:.2f}), ({recall_easgcls_no[10]:.2f}, {recall_easgcls_no[20]:.2f}, {recall_easgcls_no[50]:.2f})]')
     
         else:
             print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
@@ -118,7 +117,7 @@ def main():
     batch_size = 1
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    validation_original = EASGData(path_annts, path_data, args.partition, verbs, objs, rels)
+    validation_original = EASGData(path_annts, path_data, 'val', verbs, objs, rels)
     validation_dataset = myEASGDataset(validation_original)
 
 
