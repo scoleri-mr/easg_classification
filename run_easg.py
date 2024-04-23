@@ -8,6 +8,7 @@ import pickle
 import random
 import logging
 from math import ceil
+import wandb
 
 
 def parse_args():
@@ -127,12 +128,9 @@ class EASG(Module):
     def forward(self, clip_feat, obj_feats):
         out_verb = self.fc_verb(clip_feat)
         out_objs = self.fc_objs(obj_feats)
-
         # print(f'obj_size: {out_objs.size()}')       #[2, 391]
         # print(f'verb_size: {out_verb.size()}')      #[1, 198]
-
         clip_feat_expanded = clip_feat.expand(obj_feats.shape[0], -1) # replica clip feats un numero di volte pari al numero di oggetti presenti
-        
         out_rels = self.fc_rels(torch.cat((clip_feat_expanded, obj_feats), dim=1))
         # print(f'out_rels size: {out_rels.size()}')  #[2, 13]
         return out_verb, out_objs, out_rels
@@ -310,6 +308,14 @@ def main():
     criterion = CrossEntropyLoss()
     criterion_rel = BCEWithLogitsLoss()
 
+    config = {
+        'epochs' : args.num_epoch,
+        'scheduler_type': 'cosine annealing',
+        'sch_param' : args.sch_param
+    }
+
+    wandb.init(project = f'easg_baseline', config = config)
+    wandb.watch(model, log="all")
     for epoch in range(1, args.num_epoch+1):
         model.train()
 
@@ -332,6 +338,7 @@ def main():
             rels_vecs = graph['rels_vecs'].to(device)
             loss = criterion(out_verb, verb_idx) + criterion(out_objs, obj_indices) + criterion_rel(out_rels, rels_vecs)
             loss.backward()
+            wandb.log({"loss": loss.item()}) 
             loss_train += loss.item()
             optimizer.step()
 
@@ -339,6 +346,15 @@ def main():
 
         loss_train /= len(dataset_train)
         recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = evaluation(dataset_val, model, device, args)
+        recalls_dict = {
+                    'recall_predcls_with': recall_predcls_with,
+                    'recall_predcls_no': recall_predcls_no,
+                    'recall_sgcls_with': recall_sgcls_with,
+                    'recall_sgcls_no': recall_sgcls_no,
+                    'recall_easgcls_with': recall_easgcls_with,
+                    'recall_easgcls_no': recall_easgcls_no
+        }
+        wandb.log(recalls_dict)
         logger.info(f'Epoch [{epoch:03d}|{args.num_epoch:03d}] loss_train: {loss_train:.4f}, with: [({recall_predcls_with[10]:.2f}, {recall_predcls_with[20]:.2f}, {recall_predcls_with[50]:.2f}), ({recall_sgcls_with[10]:.2f}, {recall_sgcls_with[20]:.2f}, {recall_sgcls_with[50]:.2f}), ({recall_easgcls_with[10]:.2f}, {recall_easgcls_with[20]:.2f}, {recall_easgcls_with[50]:.2f})], no: [({recall_predcls_no[10]:.2f}, {recall_predcls_no[20]:.2f}, {recall_predcls_no[50]:.2f}), ({recall_sgcls_no[10]:.2f}, {recall_sgcls_no[20]:.2f}, {recall_sgcls_no[50]:.2f}), ({recall_easgcls_no[10]:.2f}, {recall_easgcls_no[20]:.2f}, {recall_easgcls_no[50]:.2f})]')
 
     # aggiunto da me: salviamo il modello nella cartella di output:
