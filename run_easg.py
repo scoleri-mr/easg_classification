@@ -343,6 +343,8 @@ def main():
             optimizer.step()
 
         scheduler.step()
+        current_lr = scheduler.get_last_lr()[0]
+        wandb.log({"current_lr": current_lr})
 
         loss_train /= len(dataset_train)
         recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = evaluation(dataset_val, model, device, args)
