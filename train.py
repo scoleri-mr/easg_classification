@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
     parser.add_argument('--output_dim', type=int, default=512, help='output dimension of the gnn')
-    parser.add_argument('--scheduler_type', type=str, default='cosine_annealing', help='choose between step, cosine_annealing')
+    parser.add_argument('--scheduler_type', type=str, default='step', help='choose between step, cosine_annealing')
     parser.add_argument('--cosine_annealing_param', type=int, default=10, help='parameter for lr scheduler when using cosine annealing')
     parser.add_argument('--lr_start', type=float, default=0.01, help='starting learning rate')
     parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')

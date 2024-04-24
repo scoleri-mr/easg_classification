@@ -21,6 +21,7 @@ class LinearProjection(nn.Module):
         self.obj_fc1 = nn.Linear(obj_dim, hidden_projection_dim)
         self.obj_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
         self.l_norm = nn.LayerNorm(hidden_projection_dim)
+        self.relu = nn.ReLU()
         # self.l_norm2 = nn.LayerNorm(projection_dim)
 
     def forward(self, x):
@@ -29,12 +30,12 @@ class LinearProjection(nn.Module):
         for i,_ in enumerate(x):
             if i==0: 
                 # in edge index the first node is always the verb: take all x[0]
-                temp = F.relu(self.l_norm(self.verb_fc1(x[i])))
+                temp = self.relu(self.l_norm(self.verb_fc1(x[i])))
                 # new_x[i] = self.l_norm2(self.verb_fc2(temp))
                 new_x[i] = self.verb_fc2(temp)
             else:
                 # the other nodes are objects: take x[:object_dim]
-                temp = F.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim])))
+                temp = self.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim])))
                 # new_x[i] = self.l_norm2(self.obj_fc2(temp))
                 new_x[i] = self.obj_fc2(temp)
         return new_x
@@ -64,10 +65,11 @@ class myGNN(nn.Module):
         else:
             raise Exception('Wrong graph layer type')
         self.dropout = nn.Dropout(dropout_prob)
+        self.relu = nn.ReLU()
 
     def forward(self, nodes_features, edge_index):
-        nodes_features = self.dropout(F.relu(self.conv1(nodes_features, edge_index)))
-        nodes_features = self.dropout(F.relu(self.conv2(nodes_features, edge_index)))
+        nodes_features = self.dropout(self.relu(self.conv1(nodes_features, edge_index)))
+        nodes_features = self.dropout(self.relu(self.conv2(nodes_features, edge_index)))
         edge_features = self.compute_edge_features(nodes_features, edge_index, self.output_dim)
         return nodes_features, edge_features
     
@@ -84,6 +86,21 @@ class myGNN(nn.Module):
                 m = torch.max(nodes_features[edge_index[:, i]], dim=0).values
                 av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
                 edge_features[i] = torch.cat((m,av), dim=0)
+        return edge_features
+    
+    def compute_edge_features_v2(self, nodes_features, edge_index, edge_dim):
+        edge_features = []
+        for i in range(edge_index.size(1)):
+            if self.edge_creation == 'max':
+                edge_features.append(torch.max(nodes_features[edge_index[:, i]], dim=0).values)
+            elif self.edge_creation == 'mean':
+                edge_features.append(torch.mean(nodes_features[edge_index[:, i]], dim=0))
+            elif self.edge_creation == 'conc':
+                # NOT SUPPORTED YET
+                m = torch.max(nodes_features[edge_index[:, i]], dim=0).values
+                av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
+                edge_features.append(torch.cat((m,av), dim=0))
+            edge_features = torch.stack(edge_features).to(device)
         return edge_features
 
 class myClassifier(nn.Module):
