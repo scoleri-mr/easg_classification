@@ -60,7 +60,7 @@ def evaluation(dataset_val, model, device):
 
         with torch.no_grad():
             logits_edges, logits_verb, logits_objs = model(graph.x, graph.edge_index)
-            scores_verb = logits_verb.detach().cpu().softmax(dim=0).to(device)
+            scores_verb = logits_verb[0].detach().cpu().softmax(dim=0).to(device)
             scores_objs = logits_objs.detach().cpu().softmax(dim=1).to(device)
             scores_rels = logits_edges.detach().cpu().sigmoid().to(device)
 
