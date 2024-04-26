@@ -56,6 +56,8 @@ class myGNN(nn.Module):
         if layer_type=='gcn':
             self.conv1 = GCNConv(input_dim, hidden_dim)
             self.conv2 = GCNConv(hidden_dim, output_dim)
+            # torch.nn.init.xavier_uniform_(self.conv1.lin.weight)
+            # torch.nn.init.xavier_uniform_(self.conv2.lin.weight)
         elif layer_type=='sage':
             self.conv1 = SAGEConv(input_dim, hidden_dim)
             self.conv2 = SAGEConv(hidden_dim, output_dim)
@@ -100,7 +102,7 @@ class myGNN(nn.Module):
                 m = torch.max(nodes_features[edge_index[:, i]], dim=0).values
                 av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
                 edge_features.append(torch.cat((m,av), dim=0))
-            edge_features = torch.stack(edge_features).to(device)
+            edge_features = torch.stack(edge_features).to(self.device)
         return edge_features
 
 class myClassifier(nn.Module):
@@ -111,9 +113,9 @@ class myClassifier(nn.Module):
         self.fc_objs = nn.Linear(input_dim, num_objs)
 
     def forward(self, nodes_features, edge_features):
-        logits_edges = self.fc_edges(edge_features)
-        logits_verb = self.fc_verbs(nodes_features[0])      ## Add max pooling? why?
-        logits_objs = self.fc_objs(nodes_features[1:])
+        logits_edges = self.fc_edges(edge_features) # n_edgesx13
+        logits_verb = self.fc_verbs(nodes_features[0].unsqueeze(0)) # 1x198
+        logits_objs = self.fc_objs(nodes_features[1:]) #n_oggx391
         return logits_edges, logits_verb, logits_objs
 
 class EASGClassifier(nn.Module):

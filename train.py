@@ -13,6 +13,7 @@ from torch.optim import Adam
 import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler
 from eval import evaluation
+import matplotlib.pyplot as plt
 
 def parse_args():
     parser = ArgumentParser()
@@ -32,10 +33,24 @@ def parse_args():
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     parser.add_argument('--wandb', dest='wandb', action='store_true')
     parser.add_argument('--no-wandb', dest='wandb', action='store_false')
-    parser.add_argument('--graph_type', type=str, default='gat', help='choose between graph layers: gcn, sage, gat')
+    parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat')
     parser.set_defaults(wandb=True) 
     args = parser.parse_args()
     return args
+
+def plot3losses(loss_l1, loss_l2, loss_l3):
+    x = range(len(loss_l1))
+    plt.plot(x, loss_l1, label='Loss 1')
+    plt.plot(x, loss_l2, label='Loss 2')
+    plt.plot(x, loss_l3, label='Loss 3')
+
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training Losses')
+    plt.legend()
+    plt.savefig('losses_plot.jpg')
+    plt.show()
+    return loss_l1, loss_l2, loss_l3
 
 def train(train_dataset, train_loader, validation_dataset, model, optimizer, scheduler, 
           criterion_edges, criterion_verb, criterion_objs,
@@ -49,7 +64,11 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
         wandb.init(project = f'easg_classification_{graph_type}', config = config)
         wandb.watch(model, log="all")
     
+    loss_l1 = []
+    loss_l2 = []
+    loss_l3 = []
     for epoch in range(num_epochs):
+        torch.autograd.set_detect_anomaly(True)
         model.train()
         total_loss = 0
         count = 0
@@ -58,11 +77,41 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
             batch = batch.to(device)        
             optimizer.zero_grad()
             out_edges, out_verb, out_objs = model(batch.x, batch.edge_index)  
+            # print(out_edges.size())
+            # print(out_verb.size())
+            # print(out_objs.size())
+            
             l1 = criterion_edges(out_edges, batch.y[0])
-            l2 = criterion_verb(out_verb.unsqueeze(0), batch.y[1])
+            loss_l1.append(l1.item())
+            l2 = criterion_verb(out_verb, batch.y[1])
+            loss_l2.append(l2.item())
             l3 = criterion_objs(out_objs, batch.y[2])
+            loss_l3.append(l3.item())
             loss = l1 + l2 + l3
             loss.backward()
+
+            # gradiente_lp_verb_fc1 = model.linear_projection.verb_fc1.weight.grad
+            # gradiente_lp_verb_fc2 = model.linear_projection.verb_fc2.weight.grad
+            # gradiente_lp_obj_fc1 = model.linear_projection.obj_fc1.weight.grad
+            # gradiente_lp_obj_fc2 = model.linear_projection.obj_fc2.weight.grad
+            # print("Gradient of verb_fc1:", gradiente_lp_verb_fc1)
+            # print("Gradient of verb_fc2:", gradiente_lp_verb_fc2)
+            # print("Gradient of obj_fc1:", gradiente_lp_obj_fc1)
+            # print("Gradient of obj_fc2:", gradiente_lp_obj_fc2)
+            # gradiente_gnn_conv1 = model.gnn.conv1.lin.weight.grad
+            # gradiente_gnn_conv2 = model.gnn.conv2.lin.weight.grad
+            # print("Gradient of gnn_conv1:", gradiente_gnn_conv1)
+            # print("Gradient of gnn_conv2:", gradiente_gnn_conv2)
+            # gradiente_cls_fc_edges = model.cls.fc_edges.weight.grad
+            # gradiente_cls_fc_verbs = model.cls.fc_verbs.weight.grad
+            # gradiente_cls_fc_objs = model.cls.fc_objs.weight.grad
+            # print("Gradient of cls_fc_edges:", gradiente_cls_fc_edges)
+            # print("Gradient of cls_fc_verbs:", gradiente_cls_fc_verbs)
+            # print("Gradient of cls_fc_objs:", gradiente_cls_fc_objs)
+
+            # if count==2:
+            #     ciao
+            torch.autograd.set_detect_anomaly(True)
             optimizer.step()
             if wandb_log: wandb.log({"loss": loss})      
             total_loss += loss.item()
@@ -89,9 +138,13 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
     
         else:
             print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
-        
+    
+    plot3losses(loss_l1, loss_l2, loss_l3)
     torch.save(model.state_dict(), f'trained_models/easg_classifier{num_epochs}_{graph_type}_{edge_criterion}_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
     print('Model saved!')
+    recalls = evaluation(validation_dataset, model, device)
+    recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = recalls
+    print(f'After {num_epochs} epochs -> with: [({recall_predcls_with[10]:.2f}, {recall_predcls_with[20]:.2f}, {recall_predcls_with[50]:.2f}), ({recall_sgcls_with[10]:.2f}, {recall_sgcls_with[20]:.2f}, {recall_sgcls_with[50]:.2f}), ({recall_easgcls_with[10]:.2f}, {recall_easgcls_with[20]:.2f}, {recall_easgcls_with[50]:.2f})], no: [({recall_predcls_no[10]:.2f}, {recall_predcls_no[20]:.2f}, {recall_predcls_no[50]:.2f}), ({recall_sgcls_no[10]:.2f}, {recall_sgcls_no[20]:.2f}, {recall_sgcls_no[50]:.2f}), ({recall_easgcls_no[10]:.2f}, {recall_easgcls_no[20]:.2f}, {recall_easgcls_no[50]:.2f})]')
     if wandb_log: wandb.finish()
 
 def main():
