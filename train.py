@@ -157,6 +157,8 @@ def main():
         edge_criterion = 'mean'
     elif args.edge_criterion == 'max':
         edge_criterion = 'max'
+    elif args.edge_criterion == 'conc':
+        edge_criterion = 'conc'
     else:
         raise Exception('Wrong edge criterion')
     

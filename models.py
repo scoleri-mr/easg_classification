@@ -64,6 +64,7 @@ class myGNN(nn.Module):
             raise Exception('Wrong graph layer type')
         self.dropout = nn.Dropout(dropout_prob)
         self.relu = nn.ReLU()
+        self.adaptive_max = nn.AdaptiveMaxPool1d(output_dim)
 
     def forward(self, nodes_features, edge_index):
         nodes_features = self.dropout(self.relu(self.conv1(nodes_features, edge_index)))
@@ -76,14 +77,14 @@ class myGNN(nn.Module):
         edge_features = edge_features.to(self.device)
         for i in range(edge_index.size(1)):
             if self.edge_creation == 'max':
-                edge_features[i] = torch.max(nodes_features[edge_index[:, i]], dim=0).values
+                edge_features[i] = torch.max(nodes_features[edge_index[:, i]], dim=0)[0]
             elif self.edge_creation == 'mean':
                 edge_features[i] = torch.mean(nodes_features[edge_index[:, i]], dim=0)
             elif self.edge_creation == 'conc':
-                # NOT SUPPORTED YET
-                m = torch.max(nodes_features[edge_index[:, i]], dim=0).values
+                m = torch.max(nodes_features[edge_index[:, i]], dim=0)[0]
                 av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
-                edge_features[i] = torch.cat((m,av), dim=0)
+                temp = torch.cat((m,av), dim=0) # m.size=av.size()=[256]
+                edge_features[i] = self.adaptive_max(temp.unsqueeze(0)).squeeze(0)
         return edge_features
 
 class myClassifier(nn.Module):
