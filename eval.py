@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
     parser.add_argument('--output_dim', type=int, default=512, help='output dimension of the gnn')
-    parser.add_argument('--edge_criterion', type=str, default='mean', help='define the criterion for edge creation: elementwise mean/max between two adjacent nodes')
+    parser.add_argument('--edge_criterion', type=str, default='conc', help='define the criterion for edge creation: elementwise mean/max between two adjacent nodes')
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat')
     args = parser.parse_args()

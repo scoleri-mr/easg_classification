@@ -29,7 +29,7 @@ def parse_args():
     parser.add_argument('--lr_start', type=float, default=0.0001, help='starting learning rate')
     parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')
     parser.add_argument('--lr_step_size', type=int, default=20, help='step size for scheduler')
-    parser.add_argument('--edge_criterion', type=str, default='mean', help='define the criterion for edge creation: elementwise mean/max between two adjacent nodes')
+    parser.add_argument('--edge_criterion', type=str, default='conc', help='criterion for edge creation: elementwise mean/max or their concatenation between two adjacent nodes')
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     parser.add_argument('--wandb', dest='wandb', action='store_true')
     parser.add_argument('--no-wandb', dest='wandb', action='store_false')
@@ -178,7 +178,7 @@ def main():
     criterion_objs = nn.CrossEntropyLoss()
     config = set_wandb_config(args.num_epochs, args.hidden_proj_dim, args.proj_dim, 
                         args.hidden_dim, args.output_dim, batch_size, args.scheduler_type,
-                        args.lr_start, args.lr_step_size, args.lr_gamma, args.cosine_annealing_param)
+                        args.lr_start, args.lr_step_size, args.lr_gamma, args.cosine_annealing_param, args.edge_criterion)
 
     # TRAIN THE MODEL
     train(train_dataset, train_loader, validation_dataset, edge_classifier, optimizer, scheduler, 
