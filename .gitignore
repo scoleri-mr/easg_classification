@@ -14,3 +14,6 @@ no_gnn_30.pth
 no_gnn_100.pth
 edge_cls.ipynb
 losses_plot.jpg
+only_verb_eval.py
+only_verb_train.py
+only_verb_models.py

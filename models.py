@@ -31,13 +31,13 @@ class LinearProjection(nn.Module):
             if i==0: 
                 # in edge index the first node is always the verb: take all x[0]
                 temp = self.relu(self.l_norm(self.verb_fc1(x[i])))
-                # new_x[i] = self.l_norm2(self.verb_fc2(temp))
-                new_x[i] = self.verb_fc2(temp)
+                new_x[i] = self.l_norm2(self.verb_fc2(temp))
+                # new_x[i] = self.verb_fc2(temp)
             else:
                 # the other nodes are objects: take x[:object_dim]
                 temp = self.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim])))
-                # new_x[i] = self.l_norm2(self.obj_fc2(temp))
-                new_x[i] = self.obj_fc2(temp)
+                new_x[i] = self.l_norm2(self.obj_fc2(temp))
+                # new_x[i] = self.obj_fc2(temp)
         return new_x
     
 class myGNN(nn.Module):
@@ -89,21 +89,6 @@ class myGNN(nn.Module):
                 av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
                 edge_features[i] = torch.cat((m,av), dim=0)
         return edge_features
-    
-    def compute_edge_features_v2(self, nodes_features, edge_index, edge_dim):
-        edge_features = []
-        for i in range(edge_index.size(1)):
-            if self.edge_creation == 'max':
-                edge_features.append(torch.max(nodes_features[edge_index[:, i]], dim=0).values)
-            elif self.edge_creation == 'mean':
-                edge_features.append(torch.mean(nodes_features[edge_index[:, i]], dim=0))
-            elif self.edge_creation == 'conc':
-                # NOT SUPPORTED YET
-                m = torch.max(nodes_features[edge_index[:, i]], dim=0).values
-                av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
-                edge_features.append(torch.cat((m,av), dim=0))
-            edge_features = torch.stack(edge_features).to(self.device)
-        return edge_features
 
 class myClassifier(nn.Module):
     def __init__(self, input_dim, num_rels, num_verbs, num_objs):
@@ -116,9 +101,9 @@ class myClassifier(nn.Module):
         logits_edges = self.fc_edges(edge_features) # n_edgesx13
         logits_verb = self.fc_verbs(nodes_features[0].unsqueeze(0)) # 1x198
         logits_objs = self.fc_objs(nodes_features[1:]) #n_oggx391
-        return logits_edges, logits_verb, logits_objs
+        return logits_edges, logits_verb, logits_objs 
 
-class EASGClassifier(nn.Module):
+class EASGClassifier(nn.Module): 
     def __init__(self, object_feats_dim, verb_feats_dim, 
                  num_rels, num_verbs, num_objs, 
                  hidden_projection_dim, projection_dim, hidden_dim, output_dim, 

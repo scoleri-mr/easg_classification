@@ -82,10 +82,10 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
             # print(out_objs.size())
             
             l1 = criterion_edges(out_edges, batch.y[0])
-            loss_l1.append(l1.item())
             l2 = criterion_verb(out_verb, batch.y[1])
-            loss_l2.append(l2.item())
             l3 = criterion_objs(out_objs, batch.y[2])
+            loss_l1.append(l1.item())
+            loss_l2.append(l2.item())
             loss_l3.append(l3.item())
             loss = l1 + l2 + l3
             loss.backward()
