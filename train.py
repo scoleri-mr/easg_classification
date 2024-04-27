@@ -77,10 +77,6 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
             batch = batch.to(device)        
             optimizer.zero_grad()
             out_edges, out_verb, out_objs = model(batch.x, batch.edge_index)  
-            # print(out_edges.size())
-            # print(out_verb.size())
-            # print(out_objs.size())
-            
             l1 = criterion_edges(out_edges, batch.y[0])
             l2 = criterion_verb(out_verb, batch.y[1])
             l3 = criterion_objs(out_objs, batch.y[2])
@@ -89,28 +85,6 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
             loss_l3.append(l3.item())
             loss = l1 + l2 + l3
             loss.backward()
-
-            # gradiente_lp_verb_fc1 = model.linear_projection.verb_fc1.weight.grad
-            # gradiente_lp_verb_fc2 = model.linear_projection.verb_fc2.weight.grad
-            # gradiente_lp_obj_fc1 = model.linear_projection.obj_fc1.weight.grad
-            # gradiente_lp_obj_fc2 = model.linear_projection.obj_fc2.weight.grad
-            # print("Gradient of verb_fc1:", gradiente_lp_verb_fc1)
-            # print("Gradient of verb_fc2:", gradiente_lp_verb_fc2)
-            # print("Gradient of obj_fc1:", gradiente_lp_obj_fc1)
-            # print("Gradient of obj_fc2:", gradiente_lp_obj_fc2)
-            # gradiente_gnn_conv1 = model.gnn.conv1.lin.weight.grad
-            # gradiente_gnn_conv2 = model.gnn.conv2.lin.weight.grad
-            # print("Gradient of gnn_conv1:", gradiente_gnn_conv1)
-            # print("Gradient of gnn_conv2:", gradiente_gnn_conv2)
-            # gradiente_cls_fc_edges = model.cls.fc_edges.weight.grad
-            # gradiente_cls_fc_verbs = model.cls.fc_verbs.weight.grad
-            # gradiente_cls_fc_objs = model.cls.fc_objs.weight.grad
-            # print("Gradient of cls_fc_edges:", gradiente_cls_fc_edges)
-            # print("Gradient of cls_fc_verbs:", gradiente_cls_fc_verbs)
-            # print("Gradient of cls_fc_objs:", gradiente_cls_fc_objs)
-
-            # if count==2:
-            #     ciao
             torch.autograd.set_detect_anomaly(True)
             optimizer.step()
             if wandb_log: wandb.log({"loss": loss})      

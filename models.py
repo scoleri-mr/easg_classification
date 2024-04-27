@@ -22,7 +22,7 @@ class LinearProjection(nn.Module):
         self.obj_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
         self.l_norm = nn.LayerNorm(hidden_projection_dim)
         self.relu = nn.ReLU()
-        # self.l_norm2 = nn.LayerNorm(projection_dim)
+        self.l_norm2 = nn.LayerNorm(projection_dim)
 
     def forward(self, x):
         new_x = torch.zeros([x.size(0), self.projection_dim])
@@ -32,12 +32,10 @@ class LinearProjection(nn.Module):
                 # in edge index the first node is always the verb: take all x[0]
                 temp = self.relu(self.l_norm(self.verb_fc1(x[i])))
                 new_x[i] = self.l_norm2(self.verb_fc2(temp))
-                # new_x[i] = self.verb_fc2(temp)
             else:
                 # the other nodes are objects: take x[:object_dim]
                 temp = self.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim])))
                 new_x[i] = self.l_norm2(self.obj_fc2(temp))
-                # new_x[i] = self.obj_fc2(temp)
         return new_x
     
 class myGNN(nn.Module):
@@ -56,8 +54,6 @@ class myGNN(nn.Module):
         if layer_type=='gcn':
             self.conv1 = GCNConv(input_dim, hidden_dim)
             self.conv2 = GCNConv(hidden_dim, output_dim)
-            # torch.nn.init.xavier_uniform_(self.conv1.lin.weight)
-            # torch.nn.init.xavier_uniform_(self.conv2.lin.weight)
         elif layer_type=='sage':
             self.conv1 = SAGEConv(input_dim, hidden_dim)
             self.conv2 = SAGEConv(hidden_dim, output_dim)
