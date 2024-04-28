@@ -25,17 +25,17 @@ class LinearProjection(nn.Module):
         self.l_norm2 = nn.LayerNorm(projection_dim)
 
     def forward(self, x):
-        new_x = torch.zeros([x.size(0), self.projection_dim])
-        new_x = new_x.to(self.device)
+        new_x = []
         for i,_ in enumerate(x):
             if i==0: 
                 # in edge index the first node is always the verb: take all x[0]
                 temp = self.relu(self.l_norm(self.verb_fc1(x[i])))
-                new_x[i] = self.l_norm2(self.verb_fc2(temp))
+                new_x.append(self.l_norm2(self.verb_fc2(temp)))
             else:
                 # the other nodes are objects: take x[:object_dim]
                 temp = self.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim])))
-                new_x[i] = self.l_norm2(self.obj_fc2(temp))
+                new_x.append(self.l_norm2(self.obj_fc2(temp)))
+        new_x = torch.stack(new_x, dim=0)
         return new_x
     
 class myGNN(nn.Module):
@@ -73,19 +73,18 @@ class myGNN(nn.Module):
         return nodes_features, edge_features
     
     def compute_edge_features(self, nodes_features, edge_index, edge_dim):
-        edge_features = torch.zeros([edge_index.size(1), edge_dim])
-        edge_features = edge_features.to(self.device)
+        edge_features = []
         for i in range(edge_index.size(1)):
             if self.edge_creation == 'max':
-                edge_features[i] = torch.max(nodes_features[edge_index[:, i]], dim=0)[0]
+                edge_features.append(torch.max(nodes_features[edge_index[:, i]], dim=0)[0])
             elif self.edge_creation == 'mean':
-                edge_features[i] = torch.mean(nodes_features[edge_index[:, i]], dim=0)
+                edge_features.append(torch.max(nodes_features[edge_index[:, i]], dim=0)[0])
             elif self.edge_creation == 'conc':
                 m = torch.max(nodes_features[edge_index[:, i]], dim=0)[0]
                 av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
-                temp = torch.cat((m,av), dim=0) # m.size=av.size()=[256]
-                edge_features[i] = self.adaptive_max(temp.unsqueeze(0)).squeeze(0)
-        return edge_features
+                edge_features.append(self.adaptive_max(torch.cat((m,av), dim=0).unsqueeze(0)).squeeze(0))
+        edge_features = torch.stack(edge_features, dim=0)
+        return edge_features.to(self.device)
 
 class myClassifier(nn.Module):
     def __init__(self, input_dim, num_rels, num_verbs, num_objs):
