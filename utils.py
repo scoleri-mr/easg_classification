@@ -2,7 +2,8 @@ import wandb
 
 def set_wandb_config(num_epochs, hidden_projection_dim, projection_dim,
                      hidden_dim, output_dim, batch_size, scheduler_type,
-                     lr_start, lr_step_size, lr_gamma, cosine_annealing_param, edge_criterion):
+                     lr_start, lr_step_size, lr_gamma, cosine_annealing_param, 
+                     edge_criterion, droput_prob):
     config = {
     'epochs' : num_epochs,
     'hidden_projection_dim' : hidden_projection_dim,
@@ -10,6 +11,7 @@ def set_wandb_config(num_epochs, hidden_projection_dim, projection_dim,
     'hidden_dim' : hidden_dim,
     'output_dim' : output_dim,
     'batch_size': batch_size,
+    'dropout_prob': droput_prob,
     'edge_criterion': edge_criterion,
     'scheduler': scheduler_type
     }

@@ -24,7 +24,7 @@ def parse_args():
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
     parser.add_argument('--output_dim', type=int, default=512, help='output dimension of the gnn')
-    parser.add_argument('--scheduler_type', type=str, default='step', help='choose between step, cosine_annealing')
+    parser.add_argument('--scheduler_type', type=str, default='step', help='choose between step, cosine_annealing and fixed')
     parser.add_argument('--cosine_annealing_param', type=int, default=10, help='parameter for lr scheduler when using cosine annealing')
     parser.add_argument('--lr_start', type=float, default=0.0001, help='starting learning rate')
     parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')
@@ -178,7 +178,8 @@ def main():
     criterion_objs = nn.CrossEntropyLoss()
     config = set_wandb_config(args.num_epochs, args.hidden_proj_dim, args.proj_dim, 
                         args.hidden_dim, args.output_dim, batch_size, args.scheduler_type,
-                        args.lr_start, args.lr_step_size, args.lr_gamma, args.cosine_annealing_param, args.edge_criterion)
+                        args.lr_start, args.lr_step_size, args.lr_gamma, args.cosine_annealing_param, 
+                        args.edge_criterion, args.dropout_prob)
 
     # TRAIN THE MODEL
     train(train_dataset, train_loader, validation_dataset, edge_classifier, optimizer, scheduler, 
