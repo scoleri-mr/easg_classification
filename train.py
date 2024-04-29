@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
     parser.add_argument('--output_dim', type=int, default=512, help='output dimension of the gnn')
     parser.add_argument('--scheduler_type', type=str, default='step', help='choose between step, cosine_annealing and fixed')
-    parser.add_argument('--cosine_annealing_param', type=int, default=10, help='parameter for lr scheduler when using cosine annealing')
+    # parser.add_argument('--cosine_annealing_param', type=int, default=10, help='parameter for lr scheduler when using cosine annealing')
     parser.add_argument('--lr_start', type=float, default=0.0001, help='starting learning rate')
     parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')
     parser.add_argument('--lr_step_size', type=int, default=20, help='step size for scheduler')
@@ -161,13 +161,15 @@ def main():
     else:
         raise Exception('Wrong edge criterion')
     
+    cosine_annealing_param = args.num_epochs
+    
     edge_classifier = EASGClassifier(obj_dim, verb_dim, 
                                      num_rels, num_verbs, num_objs, 
                                      args.hidden_proj_dim, args.proj_dim, args.hidden_dim, args.output_dim, 
                                     device, args.dropout_prob, edge_criterion, args.graph_type)
     optimizer = Adam(edge_classifier.parameters(), lr=args.lr_start)
     if args.scheduler_type=='cosine_annealing':
-        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.sch_param)
+        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=cosine_annealing_param)
     elif args.scheduler_type=='step':
         scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
     else:
@@ -177,7 +179,7 @@ def main():
     criterion_objs = nn.CrossEntropyLoss()
     config = set_wandb_config(args.num_epochs, args.hidden_proj_dim, args.proj_dim, 
                         args.hidden_dim, args.output_dim, batch_size, args.scheduler_type,
-                        args.lr_start, args.lr_step_size, args.lr_gamma, args.cosine_annealing_param, 
+                        args.lr_start, args.lr_step_size, args.lr_gamma, cosine_annealing_param, 
                         args.edge_criterion, args.dropout_prob)
 
     # TRAIN THE MODEL
