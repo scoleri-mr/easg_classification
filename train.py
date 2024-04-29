@@ -85,7 +85,6 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
             loss_l3.append(l3.item())
             loss = l1 + l2 + l3
             loss.backward()
-            torch.autograd.set_detect_anomaly(True)
             optimizer.step()
             if wandb_log: wandb.log({"loss": loss})      
             total_loss += loss.item()

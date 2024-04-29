@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv
 
 class LinearProjection(nn.Module):
-    def __init__(self, verb_dim, obj_dim, hidden_projection_dim, projection_dim, device):
+    def __init__(self, verb_dim, obj_dim, hidden_projection_dim, projection_dim, device, dropout_prob):
         '''
             Originally, object features were 1024 and verb features were 2304.
             Both verbs and objects need to be considered nodes so objects are padded in the dataset.
@@ -23,17 +23,18 @@ class LinearProjection(nn.Module):
         self.l_norm = nn.LayerNorm(hidden_projection_dim)
         self.relu = nn.ReLU()
         self.l_norm2 = nn.LayerNorm(projection_dim)
+        self.dropout = nn.Dropout(dropout_prob)
 
     def forward(self, x):
         new_x = []
         for i,_ in enumerate(x):
             if i==0: 
                 # in edge index the first node is always the verb: take all x[0]
-                temp = self.relu(self.l_norm(self.verb_fc1(x[i])))
+                temp = self.dropout(self.relu(self.l_norm(self.verb_fc1(x[i]))))
                 new_x.append(self.l_norm2(self.verb_fc2(temp)))
             else:
                 # the other nodes are objects: take x[:object_dim]
-                temp = self.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim])))
+                temp = self.dropout(self.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim]))))
                 new_x.append(self.l_norm2(self.obj_fc2(temp)))
         new_x = torch.stack(new_x, dim=0)
         return new_x
@@ -108,7 +109,7 @@ class EASGClassifier(nn.Module):
         self.projection_dim = projection_dim
         self.graph_type = graph_type
         
-        self.linear_projection = LinearProjection(verb_feats_dim, object_feats_dim, hidden_projection_dim, projection_dim, device)
+        self.linear_projection = LinearProjection(verb_feats_dim, object_feats_dim, hidden_projection_dim, projection_dim, device, dropout_prob)
         self.gnn = myGNN(graph_type, projection_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device)
         self.cls = myClassifier(output_dim, num_rels, num_verbs, num_objs)
 
