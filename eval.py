@@ -39,7 +39,10 @@ def evaluation(dataset_val, model, device):
     # NB: with significa with constraints (ovvero si vincola il grafo ad avere al massimo
     # una relazione object-verb), no significa No constraint (quindi niente vincolo sul 
     # numero di possibili relazioni.)
+
     def intersect_2d(out, gt):
+        '''search each gt triplet in the out triplets. Returns a tensor the same size as out in which 
+        we have true in the position corresponding to the triplet matching the gt'''
         return (out[..., None] == gt.T[None, ...]).all(1)
     
     model.eval()
