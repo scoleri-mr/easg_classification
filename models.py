@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv
+from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv, GINConv
 
 class LinearProjection(nn.Module):
     def __init__(self, verb_dim, obj_dim, hidden_projection_dim, projection_dim, device, dropout_prob):
@@ -61,6 +61,9 @@ class myGNN(nn.Module):
         elif layer_type=='gat':
             self.conv1 = GATv2Conv(input_dim, hidden_dim)
             self.conv2 = GATv2Conv(hidden_dim, output_dim)
+        elif layer_type=='gin':
+            self.conv1 = GINConv(input_dim, hidden_dim)
+            self.conv2 = GINConv(hidden_dim, output_dim)
         else:
             raise Exception('Wrong graph layer type')
         self.dropout = nn.Dropout(dropout_prob)
