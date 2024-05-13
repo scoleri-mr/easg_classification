@@ -57,7 +57,7 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
           config, 
           num_epochs, device,
           proj_dim, hidden_dim, output_dim, 
-          wandb_log, edge_criterion, graph_type):
+          wandb_log, edge_criterion, graph_type, lr_start):
     
     model = model.to(device)
     if wandb_log: 
@@ -113,7 +113,7 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
             print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
     
     plot3losses(loss_l1, loss_l2, loss_l3)
-    torch.save(model.state_dict(), f'trained_models/easg_classifier{num_epochs}_{graph_type}_{edge_criterion}_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
+    torch.save(model.state_dict(), f'trained_models/easg_classifier{num_epochs}_{lr_start}_{graph_type}_{edge_criterion}_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
     print('Model saved!')
     recalls = evaluation(validation_dataset, model, device)
     recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = recalls
@@ -187,7 +187,7 @@ def main():
           criterion_edges, criterion_verb, criterion_objs, 
           config, args.num_epochs, device, 
           args.proj_dim, args.hidden_dim, args.output_dim, 
-          args.wandb, args.edge_criterion, args.graph_type)
+          args.wandb, args.edge_criterion, args.graph_type, args.lr_start)
 
 if __name__ == "__main__":
     main()
