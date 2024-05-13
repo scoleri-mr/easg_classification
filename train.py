@@ -24,8 +24,7 @@ def parse_args():
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
     parser.add_argument('--output_dim', type=int, default=512, help='output dimension of the gnn')
-    parser.add_argument('--scheduler_type', type=str, default='step', help='choose between step, cosine_annealing and fixed')
-    # parser.add_argument('--cosine_annealing_param', type=int, default=10, help='parameter for lr scheduler when using cosine annealing')
+    parser.add_argument('--scheduler_type', type=str, default='cosine_annealing', help='choose between step, cosine_annealing and fixed')
     parser.add_argument('--lr_start', type=float, default=0.0001, help='starting learning rate')
     parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')
     parser.add_argument('--lr_step_size', type=int, default=20, help='step size for scheduler')
@@ -95,7 +94,7 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
         # average loss for the epoch
         average_loss = total_loss / count   # correct with batch_size = 1
         if num_epochs >= 20:
-            if epoch%5 == 0:
+            if epoch%10 == 0:
                 recalls = evaluation(validation_dataset, model, device)
                 recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = recalls
                 recalls_dict = {
