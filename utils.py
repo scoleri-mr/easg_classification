@@ -17,6 +17,7 @@ def set_wandb_config(num_epochs, hidden_projection_dim, projection_dim,
     }
     if scheduler_type == 'cosine_annealing':
         config['cosine_annealing_param'] = cosine_annealing_param
+        config['lr_start'] = lr_start
     elif scheduler_type == 'step':
         config['lr_start'] = lr_start
         config['lr_gamma'] = lr_gamma

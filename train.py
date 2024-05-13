@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     parser.add_argument('--wandb', dest='wandb', action='store_true')
     parser.add_argument('--no-wandb', dest='wandb', action='store_false')
-    parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat')
+    parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat, gin')
     parser.set_defaults(wandb=True) 
     args = parser.parse_args()
     return args

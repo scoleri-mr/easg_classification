@@ -56,6 +56,10 @@ def evaluation(dataset_val, model, device):
     recall_easgcls_with = {k: [] for k in list_k}
     recall_easgcls_no = {k: [] for k in list_k}
     for idx in range(len(dataset_val)):
+        # if idx == 914 or idx == 1710:  # indices of graphs with more than 4 objects in the evaluation
+        #     print('here')
+        #     print(dataset_val.get_object_indices(idx))
+        #     continue
         graph = dataset_val[idx].to(device)
 
         with torch.no_grad():
@@ -145,6 +149,25 @@ def evaluation(dataset_val, model, device):
         out_to_gt_sg_no = intersect_2d(triplets_gt, triplets_sg_no)
         out_to_gt_easg_with = intersect_2d(triplets_gt, triplets_easg_with)
         out_to_gt_easg_no = intersect_2d(triplets_gt, triplets_easg_no)
+
+        ## chech the mistakes 
+        s = out_to_gt_pred_no.sum(axis=1) # n_oggx1
+        for el in s:
+            if el == 0:
+                print(f'objects: {obj_indices}')
+                print(out_to_gt_pred_no)
+                print(triplets_pred_no)
+                print(triplets_gt)
+                ciao
+        # for el in out_to_gt_pred_no:
+        #     for e in el:
+        #         if e == False:
+        #             print(f'objects: {obj_indices}')
+        #             print(out_to_gt_pred_no)
+        #             print(triplets_pred_no.size())
+        #             print(triplets_gt.size())
+        #             ciao
+        
 
         num_gt = triplets_gt.shape[0]
         for k in list_k:
