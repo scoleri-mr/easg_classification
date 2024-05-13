@@ -70,9 +70,14 @@ def evaluation(dataset_val, model, device):
 
         verb_idx = dataset_val.get_verb_index(idx).to(device)
         obj_indices = dataset_val.get_object_indices(idx).to(device)
+        num_obj = obj_indices.shape[0]
         rels_vecs = dataset_val.get_rels(idx).to(device)
         triplets_gt = dataset_val.get_original_triplets(idx).to(device)
-        num_obj = obj_indices.shape[0]
+        
+        if len(obj_indices)==1:
+            triplets_gt[0][1] = triplets_gt[0][1] - 198
+            if triplets_gt[0][1] < 0: 
+                raise Exception('problem with object index!')
 
         # make triplets for precls
         triplets_pred_with = []
@@ -151,23 +156,15 @@ def evaluation(dataset_val, model, device):
         out_to_gt_easg_no = intersect_2d(triplets_gt, triplets_easg_no)
 
         ## chech the mistakes 
-        s = out_to_gt_pred_no.sum(axis=1) # n_oggx1
-        for el in s:
-            if el == 0:
-                print(f'objects: {obj_indices}')
-                print(out_to_gt_pred_no)
-                print(triplets_pred_no)
-                print(triplets_gt)
-                ciao
-        # for el in out_to_gt_pred_no:
-        #     for e in el:
-        #         if e == False:
-        #             print(f'objects: {obj_indices}')
-        #             print(out_to_gt_pred_no)
-        #             print(triplets_pred_no.size())
-        #             print(triplets_gt.size())
-        #             ciao
-        
+        # s = out_to_gt_pred_with.sum(axis=1) # n_oggx1
+        # print(s)
+        # for el in s:
+        #     if el == 0:
+        #         print(f'objects: {obj_indices}')
+        #         print(out_to_gt_pred_with)
+        #         print(triplets_pred_with)
+        #         print(triplets_gt)
+        #         print(idx)
 
         num_gt = triplets_gt.shape[0]
         for k in list_k:
