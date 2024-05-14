@@ -7,6 +7,7 @@ from torch_geometric.loader import DataLoader
 import torch
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
+import copy
 
 class myEASGDataset(Dataset):
     def __init__(self, data_list):
@@ -70,7 +71,7 @@ class myEASGDataset(Dataset):
 
     def __getitem__(self, idx):
         # Extract data from the dictionary
-        data_dict = self.data_list[idx]
+        data_dict = copy.deepcopy(self.data_list[idx])
         clip_features = data_dict['clip_feat']
         obj_feats = data_dict['obj_feats']
         triplets = data_dict['triplets']

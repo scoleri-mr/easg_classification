@@ -59,10 +59,6 @@ def evaluation(dataset_val, model, device):
     recall_easgcls_with = {k: [] for k in list_k}
     recall_easgcls_no = {k: [] for k in list_k}
     for idx in range(len(dataset_val)):
-        # if idx == 914 or idx == 1710:  # indices of graphs with more than 4 objects in the evaluation
-        #     print('here')
-        #     print(dataset_val.get_object_indices(idx))
-        #     continue
         graph = dataset_val[idx].to(device)
 
         with torch.no_grad():
@@ -77,10 +73,10 @@ def evaluation(dataset_val, model, device):
         rels_vecs = dataset_val.get_rels(idx).to(device)
         triplets_gt = dataset_val.get_original_triplets(idx).to(device)
         
-        if len(obj_indices)==1:
-            triplets_gt[0][1] = triplets_gt[0][1] - 198
-            if triplets_gt[0][1] < 0: 
-                raise Exception('problem with object index!')
+        # if len(obj_indices)==1:
+        #     triplets_gt[0][1] = triplets_gt[0][1] - 198
+        #     if triplets_gt[0][1] < 0: 
+        #         raise Exception('problem with object index!')
 
         # make triplets for precls
         triplets_pred_with = []
