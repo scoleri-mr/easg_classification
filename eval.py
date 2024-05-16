@@ -78,6 +78,26 @@ def evaluation(dataset_val, model, device):
         #     if triplets_gt[0][1] < 0: 
         #         raise Exception('problem with object index!')
 
+        # make triplets for verb CONTINUE THIS CODE...
+        triplets_verb_with = [] 
+        scores_verb_with = []
+        triplets_verb_no = []
+        scores_verb_no = []
+        num_top_obj_with = ceil(max(list_k)/(num_top_verb*num_top_rel_with*num_obj))
+        num_top_obj_no = ceil(max(list_k)/(num_top_verb*num_top_rel_no*num_obj))
+        for vi in scores_verb.argsort(descending=True)[:num_top_verb]:
+            for scores_obj, scores_rel in zip(scores_objs, scores_rels):
+                sorted_scores_obj = scores_obj.argsort(descending=True)
+                sorted_scores_rel = scores_rel.argsort(descending=True)
+                for oi in sorted_scores_obj[:num_top_obj_with]:
+                    for ri in sorted_scores_rel[:num_top_rel_with]:
+                        triplets_easg_with.append((vi.item(), oi.item(), ri.item()))
+                        scores_easg_with.append((scores_verb[vi]+scores_obj[oi]+scores_rel[ri]).item())
+                for oi in sorted_scores_obj[:num_top_obj_no]:
+                    for ri in sorted_scores_rel[:num_top_rel_no]:
+                        triplets_easg_no.append((vi.item(), oi.item(), ri.item()))
+                        scores_easg_no.append((scores_verb[vi]+scores_obj[oi]+scores_rel[ri]).item())
+
         # make triplets for precls
         triplets_pred_with = []
         scores_pred_with = []
