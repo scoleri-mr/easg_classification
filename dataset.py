@@ -88,7 +88,13 @@ class myEASGDataset(Dataset):
         edge_index = self.triplets2edge_index(triplets)
 
         # Create target tensors
-        y = (rels, verb_idx, obj_indices)
+        gt_rels = torch.zeros((391,14))
+        gt_rels[:,13]=1
+        for el in triplets:
+            gt_rels[el[1]-1,el[2]-1] = 1
+            gt_rels[el[1]-1,13] = 0
+
+        y = (verb_idx, gt_rels)
 
         # Create PyTorch Geometric Data object
         data = Data(x=x, edge_index=edge_index, y=y)
