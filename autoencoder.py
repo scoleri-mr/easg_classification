@@ -26,19 +26,63 @@ class LinearProjection(nn.Module):
         self.l_norm2 = nn.LayerNorm(projection_dim)
         self.dropout = nn.Dropout(dropout_prob)
 
-    def forward(self, x):
-        new_x = []
-        for i,_ in enumerate(x):
-            if i==0: 
-                # in edge index the first node is always the verb: take all x[0]
-                temp = self.dropout(self.relu(self.l_norm(self.verb_fc1(x[i]))))
-                new_x.append(self.l_norm2(self.verb_fc2(temp)))
-            else:
-                # the other nodes are objects: take x[:object_dim]
-                temp = self.dropout(self.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim]))))
-                new_x.append(self.l_norm2(self.obj_fc2(temp)))
-        new_x = torch.stack(new_x, dim=0)
-        return new_x
+    def forward(self, batch):
+        batch_indices = batch.batch
+        batch_unique = torch.unique(batch_indices)
+        new_batch = []
+        for el in batch_unique:
+            select = batch.x[batch_indices==el]
+            verb = select[0]
+            objs = select[1:]
+
+            # handle the verb: take all the features
+            temp = self.dropout(self.relu(self.l_norm(self.verb_fc1(verb))))
+            new_batch.append(self.l_norm2(self.verb_fc2(temp)))
+
+            # handle the objects: take x[:object_dim]
+            for obj in objs:
+                temp = self.dropout(self.relu(self.l_norm(self.obj_fc1(obj[:self.obj_dim]))))
+                new_batch.append(self.l_norm2(self.obj_fc2(temp)))
+
+        new_batch = torch.stack(new_batch, dim=0)
+        return new_batch
+
+class GIN(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim, latent_dim, n_layers, dropout=0.2):
+        super().__init__()
+        self.dropout = dropout
+        
+        self.convs = torch.nn.ModuleList()
+        self.convs.append(GINConv(nn.Sequential(nn.Linear(input_dim, hidden_dim),  
+                            nn.LeakyReLU(0.2),
+                            nn.BatchNorm1d(hidden_dim),
+                            nn.Linear(hidden_dim, hidden_dim), 
+                            nn.LeakyReLU(0.2))
+                            ))                        
+        for layer in range(n_layers-1):
+            self.convs.append(GINConv(nn.Sequential(nn.Linear(hidden_dim, hidden_dim),  
+                            nn.LeakyReLU(0.2),
+                            nn.BatchNorm1d(hidden_dim),
+                            nn.Linear(hidden_dim, hidden_dim), 
+                            nn.LeakyReLU(0.2))
+                            )) 
+
+        self.bn = nn.BatchNorm1d(hidden_dim)
+        self.fc = nn.Linear(hidden_dim, latent_dim)
+        
+
+    def forward(self, data):
+        edge_index = data.edge_index
+        x = data.x
+
+        for conv in self.convs:
+            x = conv(x, edge_index)
+            x = F.dropout(x, self.dropout, training=self.training)
+
+        out = global_add_pool(x, data.batch)
+        out = self.bn(out)
+        out = self.fc(out)
+        return out
     
 class myGNN(nn.Module):
     ''' 
@@ -103,74 +147,6 @@ class Decoder(nn.Module):
         adj[:,idx[0],idx[1]] = x
         adj = adj + torch.transpose(adj, 1, 2)
         return adj
-
-
-class GIN(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, latent_dim, n_layers, dropout=0.2):
-        super().__init__()
-        self.dropout = dropout
-        
-        self.convs = torch.nn.ModuleList()
-        self.convs.append(GINConv(nn.Sequential(nn.Linear(input_dim, hidden_dim),  
-                            nn.LeakyReLU(0.2),
-                            nn.BatchNorm1d(hidden_dim),
-                            nn.Linear(hidden_dim, hidden_dim), 
-                            nn.LeakyReLU(0.2))
-                            ))                        
-        for layer in range(n_layers-1):
-            self.convs.append(GINConv(nn.Sequential(nn.Linear(hidden_dim, hidden_dim),  
-                            nn.LeakyReLU(0.2),
-                            nn.BatchNorm1d(hidden_dim),
-                            nn.Linear(hidden_dim, hidden_dim), 
-                            nn.LeakyReLU(0.2))
-                            )) 
-
-        self.bn = nn.BatchNorm1d(hidden_dim)
-        self.fc = nn.Linear(hidden_dim, latent_dim)
-        
-
-    def forward(self, data):
-        edge_index = data.edge_index
-        x = data.x
-
-        for conv in self.convs:
-            x = conv(x, edge_index)
-            x = F.dropout(x, self.dropout, training=self.training)
-
-        out = global_add_pool(x, data.batch)
-        out = self.bn(out)
-        out = self.fc(out)
-        return out
-
-
-class PNA(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, latent_dim, n_layers, dropout=0.2):
-        super().__init__()
-        self.dropout = dropout
-        
-        self.convs = nn.ModuleList()
-        self.convs.append(PNAConv(input_dim, hidden_dim))                        
-        for layer in range(n_layers-1):
-            self.convs.append(PNAConv(hidden_dim, hidden_dim))
-
-        self.bn = nn.BatchNorm1d(hidden_dim)
-        self.fc = nn.Linear(hidden_dim, latent_dim)
-        self.relu = nn.ReLU()
-        
-
-    def forward(self, data):
-        edge_index = data.edge_index
-        x = data.x
-
-        for conv in self.convs:
-            x = self.relu(conv(x, edge_index))
-            x = F.dropout(x, self.dropout, training=self.training)
-
-        out = global_add_pool(x, data.batch)
-        out = self.bn(out)
-        out = self.fc(out)
-        return out
-
 
 # Autoencoder
 class AutoEncoder(nn.Module):
