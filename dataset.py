@@ -74,10 +74,12 @@ class myEASGDataset(Dataset):
         data_dict = copy.deepcopy(self.data_list[idx])
         clip_features = data_dict['clip_feat']
         obj_feats = data_dict['obj_feats']
-        triplets = data_dict['triplets']
+        triplets = copy.deepcopy(data_dict['triplets'])
         rels = data_dict['rels_vecs']
         verb_idx = data_dict['verb_idx']
         obj_indices = data_dict['obj_indices']
+
+
 
         # Concatenate clip and object features, pad the object features to match clip features
         clip_features = clip_features.unsqueeze(0)
@@ -87,10 +89,16 @@ class myEASGDataset(Dataset):
         # Create edge index tensor
         edge_index = self.triplets2edge_index(triplets)
 
+        # Restore triplets
+        triplets = copy.deepcopy(data_dict['triplets'])
+
         # Create target tensors
         gt_rels = torch.zeros((391,14))
         gt_rels[:,13]=1
         for el in triplets:
+            if el[1]>390:
+                print(triplets)
+                print(idx)
             gt_rels[el[1]-1,el[2]-1] = 1
             gt_rels[el[1]-1,13] = 0
 
