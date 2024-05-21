@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric as tg
 from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv, GINConv
+from torch_geometric.nn import global_max_pool, global_mean_pool
 
 
 def gather_by_idxs(source, idx):
@@ -125,25 +126,26 @@ class myClassifier(nn.Module):
         return logits_edges, logits_verb, logits_objs 
 
 class EASGClassifier(nn.Module): 
-    def __init__(self, object_feats_dim, verb_feats_dim,
-                 num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-                 dropout_prob=0.2, edge_creation='mean', graph_type='gat'):
+    def __init__(
+        self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+        dropout_prob=0.2, edge_creation='mean', graph_type='gat'
+        ):
         super().__init__()
         self.object_feats_dim = object_feats_dim
         self.verb_feats_dim = verb_feats_dim
         self.projection_dim = projection_dim
         self.verb_obj_proj =  LinearProjection(
-            verb_dim=verb_feats_dim, obj_dim=object_feats_dim, hidden_projection_dim=hidden_projection_dim, 
-            projection_dim=projection_dim, dropout_prob=dropout_prob)
+            verb_dim=verb_feats_dim, obj_dim=object_feats_dim, 
+            hidden_projection_dim=hidden_projection_dim, projection_dim=projection_dim, 
+            dropout_prob=dropout_prob
+            )
         self.graph_type = graph_type
         self.gnn = myGNN(graph_type, projection_dim, hidden_dim, output_dim, dropout_prob, edge_creation)
         self.cls = myClassifier(output_dim, num_rels, num_verbs, num_objs)
 
-    def forward(self, batch):
-        """ forward takes whole batch now """
+    def encode_graph(self, batch):
         out, mask = tg.utils.to_dense_batch(batch.x,batch.batch)  # [bs,max_nodes,2304], [bs,max_nodes]
-        bs = out.size(0)
-        max_nodes = out.size(1)
+        bs, max_nodes = out.size(0), out.size(1)
         
         # re-arrange features + remove feature padding
         # first elem. is verb node
@@ -152,14 +154,8 @@ class EASGClassifier(nn.Module):
         # "obj_feat" contains also object nodes padded with zeros... we don't mind as we filter them later
         obj_feat = out[:,1:,:self.object_feats_dim]  # [bs, max_nodes-1, object_feats_dim]
         
-        print(f"before projection - verb_feat: {verb_feat.shape}")
-        print(f"before projection - obj_feat: {obj_feat.shape}")
-
         # process with mlps
         verb_feat, obj_feat = self.verb_obj_proj(verb_feat, obj_feat)  # [bs,1,proj_dim], [bs,max_nodes-1,proj_dim]
-        
-        print(f"after projection - verb_feat: {verb_feat.shape}")
-        print(f"after projection - obj_feat: {obj_feat.shape}")
         
         # put again verb and objs nodes
         nodes_features = torch.cat([verb_feat, obj_feat], dim=1)  # [bs,max_nodes,projection_dim]
@@ -170,5 +166,103 @@ class EASGClassifier(nn.Module):
         edge_index = batch.edge_index
         
         nodes_features, edge_features = self.gnn(nodes_features, edge_index)
+        graphs_latents = global_max_pool(nodes_features, batch.batch)
+        return nodes_features, edge_features, graphs_latents
+        
+    def forward(self, batch):
+        """ classification forward """
+        nodes_features, edge_features, graphs_latents = self.encode_graph(batch)
         logits_edges, logits_verb, logits_objs = self.cls(nodes_features, edge_features)
         return logits_edges, logits_verb, logits_objs
+    
+    
+class EASGDecoder(nn.Module): 
+    def __init__(
+        self, num_rels, num_verbs, num_objs, input_dim, hidden_dim, 
+        dropout_prob=0.2
+        ):
+        super().__init__()
+        self.shared_mlp = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim*2),
+            nn.LayerNorm(hidden_dim*2),
+            nn.GELU(),
+            nn.Dropout(dropout_prob),
+            nn.Linear(hidden_dim*2, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+        )
+        
+        # this part is for classifying the verb starting from the graph latent code
+        self.verb_head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, num_verbs),
+        )
+        
+        # this part is for classifying the object-verb relationship from the graph latent code
+        self.rel_mlp = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, num_objs*64),
+        )
+        self.rel_head = nn.Conv1d(in_channels=64, out_channels=num_rels, kernel_size=1)
+        
+        
+    def forward(self, codes):
+        """ decoder takes a latent code for each graph """
+        bs = codes.size(0)
+        
+        # upsample features - common for verb and obj-verb relationships
+        shared_repr = self.shared_mlp(codes)
+        
+        #########
+        # verb classification
+        verb_cls = self.verb_head(shared_repr)  # [bs, num_verbs]
+        #########
+        
+        #########
+        # obj-verb rel classification
+        relationships = self.rel_mlp(shared_repr)  # [bs, num_objs*64]
+        relationships = relationships.view(bs, -1, 64) #  [bs, num_objs, 64]
+        relationships = relationships.permute(0,2,1) #  [bs, 64, num_objs]
+        relationships_cls = self.rel_head(relationships) #  [bs, num_rel, num_objs]
+        relationships_cls = relationships_cls.permute(0,2,1) #  [bs, num_objs, num_rel]
+        #########
+        
+        return verb_cls, relationships_cls
+    
+    
+class EASG_AutoEncoder(nn.Module): 
+    def __init__(
+        self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+        dropout_prob=0.2, edge_creation='mean', graph_type='gat'
+        ):
+        super().__init__()
+        
+        self.encoder = EASGClassifier(
+            object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+            dropout_prob, edge_creation, graph_type
+        )
+        self.decoder = EASGDecoder(
+            num_rels, num_verbs, num_objs, output_dim, output_dim*2, dropout_prob
+        )
+        
+    def forward(self, batch):
+        # encode 
+        _, _, graphs_latents = self.encoder.encode_graph(batch)
+        
+        # decode
+        verb_logits, obj_verb_rel_logits = self.decoder(graphs_latents)
+        return verb_logits, obj_verb_rel_logits
+    
+    
+    
+if __name__ == "__main__":
+    print('debugging')
+    model = EASGDecoder(10,20,30,64,128).cuda()
+    t = torch.rand(16, 64).cuda()
+    res = model(t)
+    print(f"res[0]: {res[0].shape}")
+    print(f"res[1]: {res[1].shape}")

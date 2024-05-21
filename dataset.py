@@ -108,3 +108,30 @@ class myEASGDataset(Dataset):
         data = Data(x=x, edge_index=edge_index, y=y)
 
         return data
+    
+    
+if __name__ == "__main__":
+    print('debugging')
+    import os.path as osp
+    ann_path = "/home/antonioa/projects/scenegraphs/easg_classification/annts_in_new_format/"
+    data_path = "/home/antonioa/projects/scenegraphs/easg_classification/data/"
+    
+    with open(osp.join(ann_path, 'verbs.txt')) as f:
+        verbs = [l.strip() for l in f.readlines()]
+    num_verbs = len(verbs)
+
+    with open(osp.join(ann_path, 'objects.txt')) as f:
+        objs = [l.strip() for l in f.readlines()]
+    num_objs = len(objs)
+
+    with open(osp.join(ann_path, 'relationships.txt')) as f:
+        rels = [l.strip() for l in f.readlines()]
+    num_rels = len(rels)
+
+    path_annts = Path(ann_path)
+    path_data = Path(data_path)
+
+    train_original = EASGData(path_annts, path_data, 'train', verbs, objs, rels)
+    dataset = myEASGDataset(train_original)
+    print(len(dataset))
+    item = dataset[0]    
