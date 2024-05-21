@@ -177,11 +177,11 @@ class EASGClassifier(nn.Module):
         bs = out.size(0)
         max_nodes = out.size(1)
         
-        # re-arrage features
-        verb_feat = gather_by_idxs(out, torch.zeros(bs,1).long().to(out.device)) # [bs,1,2304]
-        obj_feat = gather_by_idxs(out, torch.arange(max_nodes)[1:].repeat(bs).view(bs,-1).long().to(out.device)) # [bs,max_nodes-1,2304]
-        verb_feat = verb_feat[:,:,:self.verb_feats_dim]
-        obj_feat = obj_feat[:,:,:self.object_feats_dim]
+        # re-arrange features
+        # first elem. is verb node
+        verb_feat = out[:,0,:self.verb_feats_dim].unsqueeze(1)  # [bs, 1, verb_feats_dim]
+        # after first eleme at each batch item we've objs feats
+        obj_feat = out[:,1:,:self.object_feats_dim]  # [bs, max_nodes-1, object_feats_dim]
         
         # process with mlps
         verb_feat = self.mlp_verb(verb_feat)  # [bs,1,projection_dim]
