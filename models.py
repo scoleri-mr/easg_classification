@@ -22,10 +22,7 @@ def gather_by_idxs(source, idx):
 
 
 class LinearProjection(nn.Module):
-    """
-    unused now! see EASG Classifier
-    """
-    def __init__(self, verb_dim, obj_dim, hidden_projection_dim, projection_dim, device, dropout_prob):
+    def __init__(self, verb_dim, obj_dim, hidden_projection_dim, projection_dim, dropout_prob):
         '''
             Originally, object features were 1024 and verb features were 2304.
             Both verbs and objects need to be considered nodes so objects are padded in the dataset.
@@ -36,47 +33,32 @@ class LinearProjection(nn.Module):
         self.projection_dim = projection_dim
         self.obj_dim = obj_dim
         self.verb_dim = verb_dim
-        self.device = device
-        # self.verb_fc1 = nn.Linear(verb_dim, hidden_projection_dim)
-        # self.verb_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
-        # self.obj_fc1 = nn.Linear(obj_dim, hidden_projection_dim)
-        # self.obj_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
-        # self.l_norm = nn.LayerNorm(hidden_projection_dim)
-        # self.relu = nn.ReLU()
-        # self.l_norm2 = nn.LayerNorm(projection_dim)
-        # self.dropout = nn.Dropout(dropout_prob)
-        self.verb_mlp = nn.Sequential(
-            nn.Linear(verb_dim, hidden_projection_dim),
-            nn.LayerNorm(hidden_projection_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout_prob),
-            nn.Linear(hidden_projection_dim, projection_dim),
-            # here you placed a layernorm  # TODO: not so conventional in this position
-            # nn.LayerNorm(projection_dim)
-        )
-        self.obj_mlp = nn.Sequential(
+        
+        self.mlp_object = nn.Sequential(
             nn.Linear(obj_dim, hidden_projection_dim),
             nn.LayerNorm(hidden_projection_dim),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(dropout_prob),
-            nn.Linear(hidden_projection_dim, projection_dim)
-            # here you placed a layernorm  # TODO: not so conventional in this position
-            # nn.LayerNorm(projection_dim)
+            nn.Linear(hidden_projection_dim, projection_dim),
+        )
+        
+        self.mlp_verb = nn.Sequential(
+            nn.Linear(verb_dim, hidden_projection_dim),
+            nn.LayerNorm(hidden_projection_dim),
+            nn.GELU(),
+            nn.Dropout(dropout_prob),
+            nn.Linear(hidden_projection_dim, projection_dim),
         )
 
-    def forward(self, x):
-        new_x = []
-        for i,_ in enumerate(x):
-            if i==0: 
-                # in edge index the first node is always the verb: take all x[0]
-                temp = self.dropout(self.relu(self.l_norm(self.verb_fc1(x[i]))))
-                new_x.append(self.l_norm2(self.verb_fc2(temp)))
-            else:
-                # the other nodes are objects: take x[:object_dim]
-                temp = self.dropout(self.relu(self.l_norm(self.obj_fc1(x[i][:self.obj_dim]))))
-                new_x.append(self.l_norm2(self.obj_fc2(temp)))
-        new_x = torch.stack(new_x, dim=0)
-        return new_x
+    def forward(self, verb_feat, obj_feat):
+        """
+        process with mlps, returns processed verb_feat and obj_feat
+        """
+        assert verb_feat.ndim == 3 and obj_feat.ndim == 3, "check input shapes to LinearProj"
+        verb_feat = self.mlp_verb(verb_feat)  # [bs,1,projection_dim]
+        obj_feat = self.mlp_object(obj_feat)  # [bs,max_nodes-1,projection_dim]
+        return verb_feat, obj_feat
+        
     
 class myGNN(nn.Module):
     ''' 
@@ -84,10 +66,9 @@ class myGNN(nn.Module):
         simply returning the elementwise max or mean between the two nodes that 
         form the edge    
     '''
-    def __init__(self, layer_type, input_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device):
+    def __init__(self, layer_type, input_dim, hidden_dim, output_dim, dropout_prob, edge_creation):
         super().__init__()
         self.output_dim = output_dim
-        self.device = device
         self.edge_creation = edge_creation
         self.layer_type = layer_type
 
@@ -116,6 +97,7 @@ class myGNN(nn.Module):
         return nodes_features, edge_features
     
     def compute_edge_features(self, nodes_features, edge_index, edge_dim):
+        device = nodes_features.device
         edge_features = []
         for i in range(edge_index.size(1)):
             if self.edge_creation == 'max':
@@ -127,7 +109,7 @@ class myGNN(nn.Module):
                 av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
                 edge_features.append(self.adaptive_max(torch.cat((m,av), dim=0).unsqueeze(0)).squeeze(0))
         edge_features = torch.stack(edge_features, dim=0)
-        return edge_features.to(self.device)
+        return edge_features.to(device)
 
 class myClassifier(nn.Module):
     def __init__(self, input_dim, num_rels, num_verbs, num_objs):
@@ -145,30 +127,16 @@ class myClassifier(nn.Module):
 class EASGClassifier(nn.Module): 
     def __init__(self, object_feats_dim, verb_feats_dim,
                  num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-                 device = 'cuda', dropout_prob=0.2, edge_creation='mean', graph_type='gat'):
+                 dropout_prob=0.2, edge_creation='mean', graph_type='gat'):
         super().__init__()
         self.object_feats_dim = object_feats_dim
         self.verb_feats_dim = verb_feats_dim
         self.projection_dim = projection_dim
-        
-        self.mlp_object = nn.Sequential(
-            nn.Linear(object_feats_dim, hidden_projection_dim),
-            nn.LayerNorm(hidden_projection_dim),
-            nn.GELU(),
-            nn.Dropout(dropout_prob),
-            nn.Linear(hidden_projection_dim, projection_dim),
-        )
-        
-        self.mlp_verb = nn.Sequential(
-            nn.Linear(verb_feats_dim, hidden_projection_dim),
-            nn.LayerNorm(hidden_projection_dim),
-            nn.GELU(),
-            nn.Dropout(dropout_prob),
-            nn.Linear(hidden_projection_dim, projection_dim),
-        )
-        
+        self.verb_obj_proj =  LinearProjection(
+            verb_dim=verb_feats_dim, obj_dim=object_feats_dim, hidden_projection_dim=hidden_projection_dim, 
+            projection_dim=projection_dim, dropout_prob=dropout_prob)
         self.graph_type = graph_type
-        self.gnn = myGNN(graph_type, projection_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device)
+        self.gnn = myGNN(graph_type, projection_dim, hidden_dim, output_dim, dropout_prob, edge_creation)
         self.cls = myClassifier(output_dim, num_rels, num_verbs, num_objs)
 
     def forward(self, batch):
@@ -177,19 +145,25 @@ class EASGClassifier(nn.Module):
         bs = out.size(0)
         max_nodes = out.size(1)
         
-        # re-arrange features
+        # re-arrange features + remove feature padding
         # first elem. is verb node
         verb_feat = out[:,0,:self.verb_feats_dim].unsqueeze(1)  # [bs, 1, verb_feats_dim]
         # after first eleme at each batch item we've objs feats
+        # "obj_feat" contains also object nodes padded with zeros... we don't mind as we filter them later
         obj_feat = out[:,1:,:self.object_feats_dim]  # [bs, max_nodes-1, object_feats_dim]
         
+        print(f"before projection - verb_feat: {verb_feat.shape}")
+        print(f"before projection - obj_feat: {obj_feat.shape}")
+
         # process with mlps
-        verb_feat = self.mlp_verb(verb_feat)  # [bs,1,projection_dim]
-        obj_feat = self.mlp_object(obj_feat)  # [bs,max_nodes-1,projection_dim]
+        verb_feat, obj_feat = self.verb_obj_proj(verb_feat, obj_feat)  # [bs,1,proj_dim], [bs,max_nodes-1,proj_dim]
         
-        # re-put all together
+        print(f"after projection - verb_feat: {verb_feat.shape}")
+        print(f"after projection - obj_feat: {obj_feat.shape}")
+        
+        # put again verb and objs nodes
         nodes_features = torch.cat([verb_feat, obj_feat], dim=1)  # [bs,max_nodes,projection_dim]
-        # remove padding elements and return to list of nodes as PyG wants!
+        # to PyG list + remove padding nodes
         nodes_features = nodes_features[mask]
         
         # edge index are kept the same

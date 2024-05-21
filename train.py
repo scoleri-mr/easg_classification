@@ -165,7 +165,7 @@ def main():
     edge_classifier = EASGClassifier(obj_dim, verb_dim, 
                                      num_rels, num_verbs, num_objs, 
                                      args.hidden_proj_dim, args.proj_dim, args.hidden_dim, args.output_dim, 
-                                    device, args.dropout_prob, edge_criterion, args.graph_type)
+                                     args.dropout_prob, edge_criterion, args.graph_type)
     optimizer = Adam(edge_classifier.parameters(), lr=args.lr_start)
     if args.scheduler_type=='cosine_annealing':
         scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=cosine_annealing_param)
