@@ -9,35 +9,36 @@ from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 import copy
 
+
 class myEASGDataset(Dataset):
     def __init__(self, data_list):
         self.data_list = data_list
 
     def __len__(self):
         return len(self.data_list)
-    
+
     def get_object_indices(self, idx):
         data_dict = self.data_list[idx]
         obj_indices = data_dict['obj_indices']
         return obj_indices
-    
+
     def get_verb_index(self, idx):
         data_dict = self.data_list[idx]
         verb_idx = data_dict['verb_idx']
         return verb_idx
-    
+
     def get_original_triplets(self, idx):
         ''' this contain the original triplets with the indexing that uses
         the two different objects and verb files'''
         data_dict = self.data_list[idx]
         triplets = data_dict['triplets']
         return triplets
-    
-    def get_rels(self,idx):
+
+    def get_rels(self, idx):
         data_dict = self.data_list[idx]
         rels_vecs = data_dict['rels_vecs']
         return rels_vecs
-    
+
     def triplets2edge_index(self, triplets):
         ''' 
             Create edge_index tensor starting from the original triplets.
@@ -50,18 +51,19 @@ class myEASGDataset(Dataset):
             (verb+objects) of the graph. If we have two nodes linked by two or more relationships
             the edge index will have repeating columns.
         '''
-        edge_index_temp = triplets[:,:2].t().contiguous()
+        edge_index_temp = triplets[:, :2].t().contiguous()
         # Objects go from 0 to 390, verbs go from 0 to 197. It could happen that verb 5 is connected
         # to object 5 and I would have an edge index that goes from 5 to 5 when actually the nodes are 
         # different. To avoid this situation I add to the second row of the edge index the number of verbs
         # which is 198. This way it's like all nodes (verbs+objects) are indexed consecutively.
         # We can do it this way because we know that the first line always corresponds to a verb, 
         # without this knowledge this should be adapted
-        edge_index_temp[1] = edge_index_temp[1]+198
-        edge_index = torch.zeros(edge_index_temp.size(), dtype = torch.int64)
-        nodes = torch.unique_consecutive(edge_index_temp.flatten()) # DO NOT SORT THE ELEMENTS, YOU WILL LOSE THE ORDER OF rels_vecs
+        edge_index_temp[1] = edge_index_temp[1] + 198
+        edge_index = torch.zeros(edge_index_temp.size(), dtype=torch.int64)
+        nodes = torch.unique_consecutive(
+            edge_index_temp.flatten())  # DO NOT SORT THE ELEMENTS, YOU WILL LOSE THE ORDER OF rels_vecs
         nodes = nodes.tolist()
-        for i,row in enumerate(edge_index_temp):
+        for i, row in enumerate(edge_index_temp):
             for j, el in enumerate(row):
                 index = nodes.index(el)
                 edge_index[i][j] = index
@@ -71,6 +73,9 @@ class myEASGDataset(Dataset):
 
     def __getitem__(self, idx):
         # Extract data from the dictionary
+        # TODO: questa cosa non va ASSOLUTAMENTE bene
+        num_objs = 391
+        num_rels = 13
         data_dict = copy.deepcopy(self.data_list[idx])
         clip_features = data_dict['clip_feat']
         obj_feats = data_dict['obj_feats']
@@ -79,43 +84,44 @@ class myEASGDataset(Dataset):
         verb_idx = data_dict['verb_idx']
         obj_indices = data_dict['obj_indices']
 
-
-
         # Concatenate clip and object features, pad the object features to match clip features
         clip_features = clip_features.unsqueeze(0)
-        obj_feats = torch.cat([obj_feats, torch.zeros(obj_feats.size(0), clip_features.size(1)-obj_feats.size(1))], dim=1)
+        obj_feats = torch.cat([obj_feats, torch.zeros(obj_feats.size(0), clip_features.size(1) - obj_feats.size(1))],
+                              dim=1)
         x = torch.cat([clip_features, obj_feats], dim=0)
 
         # Create edge index tensor
         edge_index = self.triplets2edge_index(triplets)
 
-        # Restore triplets
-        triplets = copy.deepcopy(data_dict['triplets'])
 
-        # Create target tensors
-        gt_rels = torch.zeros((391,14))
-        gt_rels[:,13]=1
-        for el in triplets:
-            if el[1]>390:
-                print(triplets)
-                print(idx)
-            gt_rels[el[1]-1,el[2]-1] = 1
-            gt_rels[el[1]-1,13] = 0
-
-        y = (verb_idx, gt_rels)
+        # TODO: add a relationship "num_rels+1" to model the non-presence of object
+        # Create target tensors for object-verb relationships
+        gt_rels = torch.zeros((num_objs, num_rels+1)).long()
+        for obj_idx in range(num_objs):
+            positions = (obj_indices == obj_idx).nonzero(as_tuple=True)[0]
+            if positions.numel() == 1:
+                # object is present
+                positions = positions[0].item()
+                curr_rel = rels.argmax(-1)[positions]
+                gt_rels[obj_idx, curr_rel] = 1
+            elif positions.numel() == 0:
+                # not existing object
+                gt_rels[obj_idx, -1] = 1
+            else:
+                assert False, "sth wrong happened!"
 
         # Create PyTorch Geometric Data object
-        data = Data(x=x, edge_index=edge_index, y=y)
+        data = Data(x=x, edge_index=edge_index)
+        return data, verb_idx, gt_rels
 
-        return data
-    
-    
+
 if __name__ == "__main__":
     print('debugging')
     import os.path as osp
+
     ann_path = "/home/antonioa/projects/scenegraphs/easg_classification/annts_in_new_format/"
     data_path = "/home/antonioa/projects/scenegraphs/easg_classification/data/"
-    
+
     with open(osp.join(ann_path, 'verbs.txt')) as f:
         verbs = [l.strip() for l in f.readlines()]
     num_verbs = len(verbs)
@@ -134,4 +140,5 @@ if __name__ == "__main__":
     train_original = EASGData(path_annts, path_data, 'train', verbs, objs, rels)
     dataset = myEASGDataset(train_original)
     print(len(dataset))
-    item = dataset[0]    
+    item = dataset[0]
+    print()

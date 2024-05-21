@@ -11,9 +11,10 @@ import torch
 from torch import cuda
 from torch.optim import Adam
 import torch.nn as nn
-import torch.optim.lr_scheduler as lr_scheduler
 from eval import evaluation
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
+from tqdm import tqdm
 
 
 def parse_args():
@@ -68,80 +69,37 @@ def plot3losses(loss_l1, loss_l2, loss_l3):
     return loss_l1, loss_l2, loss_l3
 
 
-def train(train_dataset, train_loader, validation_dataset, model, optimizer, scheduler,
-          criterion_edges, criterion_verb, criterion_objs,
-          config,
-          num_epochs, device,
-          proj_dim, hidden_dim, output_dim,
-          wandb_log, edge_criterion, graph_type, lr_start):
-
+def train(train_loader, validation_dataset, model, optimizer, scheduler, config, num_epochs, device, proj_dim,
+          hidden_dim, output_dim, wandb_log, edge_criterion, graph_type, lr_start):
     model = model.to(device)
     if wandb_log:
         wandb.init(project=f'easg_ae_{graph_type}', config=config)
         wandb.watch(model, log="all")
 
-    loss_l1 = []
-    loss_l2 = []
-    loss_l3 = []
     for epoch in range(num_epochs):
-        torch.autograd.set_detect_anomaly(True)
         model.train()
-        total_loss = 0
         count = 0
-        for batch in train_loader:
+        for bidx, _data in tqdm(enumerate(train_loader, 0), unit="batch", total=len(train_loader)):
+            batch, verb_gt, rel_gt = _data
             count += 1
             batch = batch.to(device)
+            verb_gt = verb_gt.view(-1).to(device)  #  [bs, ]
+            rel_gt = rel_gt.to(device)  # [bs,num_objs,num_rels+1]
             optimizer.zero_grad()
             out_verb, out_rel = model(batch)
-
-            verb_gt = batch.y[0]
-            loss_verb = criterion_verb(out_verb, verb_gt)
-            # out_verb: [bs, num_verbs]
-            # out_rel: [bs, num_objs, num_rel]
-            # l1 = criterion_edges(out_edges, batch.y[0])
-            # l2 = criterion_verb(out_verb, batch.y[0])
-            # l3 = criterion_objs(out_objs, batch.y[2])
-            # loss_l1.append(l1.item())
-            # loss_l2.append(l2.item())
-            # loss_l3.append(l3.item())
-            loss = loss_verb #l1 + l2 + l3
+            loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
+            out_rel = out_rel.contiguous().view(-1, 14)
+            rel_gt = rel_gt.argmax(-1).view(-1)
+            loss_rel = F.cross_entropy(input=out_rel, target=rel_gt)
+            loss = loss_verb + loss_rel
             loss.backward()
             optimizer.step()
-            if wandb_log:
-                wandb.log({"loss": loss})
-            total_loss += loss.item()
+            if wandb_log and bidx % 10 == 0:
+                current_lr = scheduler.get_last_lr()[0]
+                wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "current_lr": current_lr})
+                print(f"epoch {epoch}, it: {bidx}, 
+                      loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}")
         scheduler.step()
-        current_lr = scheduler.get_last_lr()[0]
-        if wandb_log:
-            wandb.log({"current_lr": current_lr})
-
-        # average loss for the epoch
-        average_loss = total_loss / count   # correct with batch_size = 1
-        if False and num_epochs >= 20:
-            if epoch % 10 == 0:
-                recalls = evaluation(validation_dataset, model, device)
-                recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = recalls
-                recalls_dict = {
-                    'recall_predcls_with': recall_predcls_with,
-                    'recall_predcls_no': recall_predcls_no,
-                    'recall_sgcls_with': recall_sgcls_with,
-                    'recall_sgcls_no': recall_sgcls_no,
-                    'recall_easgcls_with': recall_easgcls_with,
-                    'recall_easgcls_no': recall_easgcls_no
-                }
-                if wandb_log:
-                    wandb.log(recalls_dict)
-                print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}, with: [({recall_predcls_with[10]:.2f}, {recall_predcls_with[20]:.2f}, {recall_predcls_with[50]:.2f}), ({recall_sgcls_with[10]:.2f}, {recall_sgcls_with[20]:.2f}, {recall_sgcls_with[50]:.2f}), ({recall_easgcls_with[10]:.2f}, {recall_easgcls_with[20]:.2f}, {recall_easgcls_with[50]:.2f})], no: [({recall_predcls_no[10]:.2f}, {recall_predcls_no[20]:.2f}, {recall_predcls_no[50]:.2f}), ({recall_sgcls_no[10]:.2f}, {recall_sgcls_no[20]:.2f}, {recall_sgcls_no[50]:.2f}), ({recall_easgcls_no[10]:.2f}, {recall_easgcls_no[20]:.2f}, {recall_easgcls_no[50]:.2f})]')
-        else:
-            print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
-
-    plot3losses(loss_l1, loss_l2, loss_l3)
-    torch.save(model.state_dict(
-    ), f'trained_models/easg_ae{num_epochs}_{lr_start}_{graph_type}_{edge_criterion}_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
-    print('Model saved!')
-    recalls = evaluation(validation_dataset, model, device)
-    recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = recalls
-    print(f'After {num_epochs} epochs -> with: [({recall_predcls_with[10]:.2f}, {recall_predcls_with[20]:.2f}, {recall_predcls_with[50]:.2f}), ({recall_sgcls_with[10]:.2f}, {recall_sgcls_with[20]:.2f}, {recall_sgcls_with[50]:.2f}), ({recall_easgcls_with[10]:.2f}, {recall_easgcls_with[20]:.2f}, {recall_easgcls_with[50]:.2f})], no: [({recall_predcls_no[10]:.2f}, {recall_predcls_no[20]:.2f}, {recall_predcls_no[50]:.2f}), ({recall_sgcls_no[10]:.2f}, {recall_sgcls_no[20]:.2f}, {recall_sgcls_no[50]:.2f}), ({recall_easgcls_no[10]:.2f}, {recall_easgcls_no[20]:.2f}, {recall_easgcls_no[50]:.2f})]')
     if wandb_log:
         wandb.finish()
 
@@ -164,21 +122,18 @@ def main():
     path_annts = Path(args.ann_path)
     path_data = Path(args.data_path)
 
-    train_original = EASGData(path_annts, path_data,
-                              'train', verbs, objs, rels)
+    train_original = EASGData(path_annts, path_data, 'train', verbs, objs, rels)
     train_dataset = myEASGDataset(train_original)
-    batch_size = 16
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True)
+    batch_size = 64
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    validation_original = EASGData(
-        path_annts, path_data, 'val', verbs, objs, rels)
+    validation_original = EASGData(path_annts, path_data, 'val', verbs, objs, rels)
     validation_dataset = myEASGDataset(validation_original)
 
     # DEFINE THE MODEL  AND IT'PARAMETERS
     device = 'cuda' if cuda.is_available() else print('CUDA NOT AVAILABLE')
-    obj_dim = 1024                  # original object dimension
-    verb_dim = 2304                 # original verb dimension
+    obj_dim = 1024  # original object dimension
+    verb_dim = 2304  # original verb dimension
 
     if args.edge_criterion == 'mean':
         edge_criterion = 'mean'
@@ -191,10 +146,18 @@ def main():
 
     cosine_annealing_param = args.num_epochs
 
-    model = EASG_AutoEncoder(obj_dim, verb_dim,
-                             num_rels, num_verbs, num_objs,
-                             args.hidden_proj_dim, args.proj_dim, args.hidden_dim, args.output_dim,
-                             args.dropout_prob, edge_criterion, args.graph_type)
+    model = EASG_AutoEncoder(obj_dim,
+                             verb_dim,
+                             num_rels + 1,  # TODO: added num_rels + 1
+                             num_verbs, num_objs,
+                             args.hidden_proj_dim,
+                             args.proj_dim,
+                             args.hidden_dim,
+                             args.output_dim,
+                             args.dropout_prob,
+                             edge_criterion,
+                             args.graph_type
+                             )
     optimizer = Adam(model.parameters(), lr=args.lr_start)
     if args.scheduler_type == 'cosine_annealing':
         scheduler = lr_scheduler.CosineAnnealingLR(
@@ -204,17 +167,14 @@ def main():
             optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
     else:
         raise Exception('Wrong scheduler type')
-    criterion_edges = nn.BCEWithLogitsLoss()
-    criterion_verb = nn.CrossEntropyLoss()
-    criterion_objs = nn.CrossEntropyLoss()
+    
     config = set_wandb_config(args.num_epochs, args.hidden_proj_dim, args.proj_dim,
                               args.hidden_dim, args.output_dim, batch_size, args.scheduler_type,
                               args.lr_start, args.lr_step_size, args.lr_gamma, cosine_annealing_param,
                               args.edge_criterion, args.dropout_prob)
 
     # TRAIN THE MODEL
-    train(train_dataset, train_loader, validation_dataset, model, optimizer, scheduler,
-          criterion_edges, criterion_verb, criterion_objs,
+    train(train_loader, validation_dataset, model, optimizer, scheduler,
           config, args.num_epochs, device,
           args.proj_dim, args.hidden_dim, args.output_dim,
           args.wandb, args.edge_criterion, args.graph_type, args.lr_start)
