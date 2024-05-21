@@ -17,8 +17,8 @@ import matplotlib.pyplot as plt
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument('--ann_path', type=str, default='annts_in_new_format/', help='path to annotations')
-    parser.add_argument('--data_path', type=str, default='data', help='path to ROI and clip features')
+    parser.add_argument('--ann_path', type=str, default='./annts_in_new_format/', help='path to annotations')
+    parser.add_argument('--data_path', type=str, default='./data/', help='path to ROI and clip features')
     parser.add_argument('--num_epochs', type=int, default=100, help='total number of epochs')
     parser.add_argument('--hidden_proj_dim', type=int, default=1024, help='hidden dimension for linear projection')
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
@@ -75,7 +75,7 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
             count += 1
             batch = batch.to(device)        
             optimizer.zero_grad()
-            out_edges, out_verb, out_objs = model(batch.x, batch.edge_index)  
+            out_edges, out_verb, out_objs = model(batch)  # model(batch.x, batch.edge_index)  
             l1 = criterion_edges(out_edges, batch.y[0])
             l2 = criterion_verb(out_verb, batch.y[1])
             l3 = criterion_objs(out_objs, batch.y[2])
@@ -139,7 +139,7 @@ def main():
 
     train_original = EASGData(path_annts, path_data, 'train', verbs, objs, rels)
     train_dataset = myEASGDataset(train_original)
-    batch_size = 1
+    batch_size = 16
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
     validation_original = EASGData(path_annts, path_data, 'val', verbs, objs, rels)
