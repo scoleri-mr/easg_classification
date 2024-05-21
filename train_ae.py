@@ -97,8 +97,7 @@ def train(train_loader, validation_dataset, model, optimizer, scheduler, config,
             if wandb_log and bidx % 10 == 0:
                 current_lr = scheduler.get_last_lr()[0]
                 wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "current_lr": current_lr})
-                print(f"epoch {epoch}, it: {bidx}, 
-                      loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}")
+                print(f"epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}")
         scheduler.step()
     if wandb_log:
         wandb.finish()
