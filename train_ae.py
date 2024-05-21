@@ -1,3 +1,5 @@
+import os
+import os.path as osp
 from run_easg import EASGData
 from dataset import myEASGDataset
 from pathlib import Path
@@ -15,6 +17,7 @@ from eval import evaluation
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
+import time
 
 
 def parse_args():
@@ -69,8 +72,31 @@ def plot3losses(loss_l1, loss_l2, loss_l3):
     return loss_l1, loss_l2, loss_l3
 
 
+def save_checkpoint(model, optimizer, epoch, path):
+    """
+    Saves a checkpoint of the model and optimizer states, along with training metadata.
+
+    Args:
+    model (torch.nn.Module): The model whose parameters you want to save.
+    optimizer (torch.optim.Optimizer): The optimizer with current state.
+    epoch (int): Current epoch number.
+    path (str): Path to save the checkpoint file.
+
+    Returns:
+    None
+    """
+    checkpoint = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+    }
+    torch.save(checkpoint, path)
+    print(f'Checkpoint saved to {path}')
+    
+
 def train(train_loader, validation_dataset, model, optimizer, scheduler, config, num_epochs, device, proj_dim,
           hidden_dim, output_dim, wandb_log, edge_criterion, graph_type, lr_start):
+    exp_name = f"experiments/AE_{str(int(time.time()))}"
     model = model.to(device)
     if wandb_log:
         wandb.init(project=f'easg_ae_{graph_type}', config=config)
@@ -99,6 +125,12 @@ def train(train_loader, validation_dataset, model, optimizer, scheduler, config,
                 wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "current_lr": current_lr})
                 print(f"epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}")
         scheduler.step()
+        
+        if epoch % 20 == 0:
+            save_dir = f"./{exp_name}/checkpoints"
+            os.makedirs(save_dir, exist_ok=True)
+            save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
+            
     if wandb_log:
         wandb.finish()
 
