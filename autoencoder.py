@@ -3,63 +3,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv, GINConv, PNAConv, global_add_pool, global_mean_pool, global_max_pool
 from torch_geometric.nn import global_add_pool
+from models import LinearProjection
+import torch_geometric as tg
 
-class LinearProjection(nn.Module):
-    def __init__(self, verb_dim, obj_dim, hidden_projection_dim, projection_dim, device, dropout_prob):
-        '''
-            Originally, object features were 1024 and verb features were 2304.
-            Both verbs and objects need to be considered nodes so objects are padded in the dataset.
-            We don't want to send padded nodes to the gnn so we handle this here:
-            we perform a linear projection of objects and verbs removing the padding.
-        '''
-        super().__init__()
-        self.projection_dim = projection_dim
-        self.obj_dim = obj_dim
-        self.verb_dim = verb_dim
-        self.device = device
-        self.verb_fc1 = nn.Linear(verb_dim, hidden_projection_dim)
-        self.verb_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
-        self.obj_fc1 = nn.Linear(obj_dim, hidden_projection_dim)
-        self.obj_fc2 = nn.Linear(hidden_projection_dim, projection_dim)
-        self.l_norm = nn.LayerNorm(hidden_projection_dim)
-        self.relu = nn.ReLU()
-        self.l_norm2 = nn.LayerNorm(projection_dim)
-        self.dropout = nn.Dropout(dropout_prob)
-
-    def forward(self, batch):
-        batch_indices = batch.batch
-        batch_unique = torch.unique(batch_indices)
-        new_x = []
-        for el in batch_unique:
-            select = batch.x[batch_indices==el]
-            verb = select[0]
-            objs = select[1:]
-
-            # handle the verb: take all the features
-            temp = self.dropout(self.relu(self.l_norm(self.verb_fc1(verb))))
-            new_x.append(self.l_norm2(self.verb_fc2(temp)))
-
-            # handle the objects: take x[:object_dim]
-            for obj in objs:
-                temp = self.dropout(self.relu(self.l_norm(self.obj_fc1(obj[:self.obj_dim]))))
-                new_x.append(self.l_norm2(self.obj_fc2(temp)))
-
-        new_x = torch.stack(new_x, dim=0)
-        batch.x = new_x
-        return batch
-    
 class myGNN(nn.Module):
     ''' 
-        apply two gnn layers ('gcn', 'sage' or 'gat') to the graph and get the edge features by
+        Differs from myGNN in models.py because it doesn't generate edge_features
+        apply two gnn layers ('gcn', 'sage', 'gat' or 'gin') to the graph and get the edge features by
         simply returning the elementwise max or mean between the two nodes that 
         form the edge    
     '''
-    def __init__(self, layer_type, input_dim, hidden_dim, output_dim, pool_type, dropout_prob, device):
+    def __init__(self, layer_type, input_dim, hidden_dim, output_dim, dropout_prob):
         super().__init__()
         self.output_dim = output_dim
-        self.device = device
         self.layer_type = layer_type
-        self.pool_type = pool_type
 
         if layer_type=='gcn':
             self.conv1 = GCNConv(input_dim, hidden_dim)
@@ -72,92 +29,156 @@ class myGNN(nn.Module):
             self.conv2 = GATv2Conv(hidden_dim, output_dim)
         elif layer_type=='gin':
             self.conv1 = GINConv(nn.Sequential(
-                nn.Linear(input_dim, hidden_dim),
-                nn.LeakyReLU(0.2),
-                nn.BatchNorm1d(hidden_dim)
+                nn.Linear(input_dim, hidden_dim)
             ))
             self.conv2 = GINConv(nn.Sequential(
-                nn.Linear(hidden_dim, output_dim),
-                nn.LeakyReLU(0.2),
+                nn.Linear(hidden_dim, output_dim)
             ))
         else:
             raise Exception('Wrong graph layer type')
-        
         self.dropout = nn.Dropout(dropout_prob)
         self.relu = nn.ReLU()
 
-    def forward(self, batch):
-        x = self.dropout(self.relu(self.conv1(batch.x, batch.edge_index)))
-        x = self.dropout(self.relu(self.conv2(x, batch.edge_index)))
+    def forward(self, nodes_features, edge_index):
+        nodes_features = self.dropout(self.relu(self.conv1(nodes_features, edge_index)))
+        nodes_features = self.dropout(self.relu(self.conv2(nodes_features, edge_index)))
+        return nodes_features
+    
+# Encoder 
+class EASGEncoder(nn.Module):
+    def __init__(self, object_feats_dim, verb_feats_dim,
+                 num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+                 dropout_prob=0.2, graph_type='gat', pool_type='add'):
+        super().__init__()
+        self.object_feats_dim = object_feats_dim
+        self.verb_feats_dim = verb_feats_dim
+        self.projection_dim = projection_dim
+        self.verb_obj_proj =  LinearProjection(
+            verb_dim=verb_feats_dim, obj_dim=object_feats_dim, hidden_projection_dim=hidden_projection_dim, 
+            projection_dim=projection_dim, dropout_prob=dropout_prob)
+        self.graph_type = graph_type
+        self.pool_type = pool_type
+        self.gnn = myGNN(graph_type, projection_dim, hidden_dim, output_dim, dropout_prob)
+
+    def encode_graph(self, batch):
+        """ forward takes whole batch now """
+        out, mask = tg.utils.to_dense_batch(batch.x,batch.batch)  # [bs,max_nodes,2304], [bs,max_nodes]        
+        # re-arrange features + remove feature padding
+        # first elem. is verb node
+        verb_feat = out[:,0,:self.verb_feats_dim].unsqueeze(1)  # [bs, 1, verb_feats_dim]
+        # after first eleme at each batch item we've objs feats
+        # "obj_feat" contains also object nodes padded with zeros... we don't mind as we filter them later
+        obj_feat = out[:,1:,:self.object_feats_dim]  # [bs, max_nodes-1, object_feats_dim]
+
+        # process with mlps
+        verb_feat, obj_feat = self.verb_obj_proj(verb_feat, obj_feat)  # [bs,1,proj_dim], [bs,max_nodes-1,proj_dim]
+        
+        # put again verb and objs nodes
+        nodes_features = torch.cat([verb_feat, obj_feat], dim=1)  # [bs,max_nodes,projection_dim]
+        # to PyG list + remove padding nodes
+        nodes_features = nodes_features[mask]
+        
+        # edge index are kept the same
+        edge_index = batch.edge_index
+        
+        nodes_features = self.gnn(nodes_features, edge_index)
+
         if self.pool_type == 'add':
-            x = global_add_pool(x, batch.batch)
+            graphs_latents = global_add_pool(nodes_features, batch.batch)
         elif self.pool_type == 'mean':
-            x = global_mean_pool(x, batch.batch)
+            graphs_latents = global_mean_pool(nodes_features, batch.batch)
         elif self.pool_type == 'max':
-            x = global_max_pool(x, batch.batch)
+            graphs_latents = global_max_pool(nodes_features, batch.batch)
         else:
             raise Exception('Wrong pooling type')
-        return x
+        return nodes_features, graphs_latents
     
-# Decoder
-class Decoder(nn.Module):
-    def __init__(self, latent_dim, hidden_dim, n_layers, n_nodes):
-        super(Decoder, self).__init__()
-        self.n_layers = n_layers
-        self.n_nodes = n_nodes
-
-        mlp_layers = [nn.Linear(latent_dim, hidden_dim)] + [nn.Linear(hidden_dim, hidden_dim) for i in range(n_layers-2)]
-        mlp_layers.append(nn.Linear(hidden_dim, 2*n_nodes*(n_nodes-1)//2))
-
-        self.mlp = nn.ModuleList(mlp_layers)
-        self.relu = nn.ReLU()
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        for i in range(self.n_layers-1):
-            x = self.relu(self.mlp[i](x))
-        
-        x = self.mlp[self.n_layers-1](x)
-        x = torch.reshape(x, (x.size(0), -1, 2))
-        x = F.gumbel_softmax(x, tau=1, hard=True)[:,:,0]
-
-        adj = torch.zeros(x.size(0), self.n_nodes, self.n_nodes, device=x.device)
-        idx = torch.triu_indices(self.n_nodes, self.n_nodes, 1)
-        adj[:,idx[0],idx[1]] = x
-        adj = adj + torch.transpose(adj, 1, 2)
-        return adj
-    
-class MyAutoEncoder(nn.Module):
-    def __init__(self, object_feats_dim, verb_feats_dim, 
-                 num_rels, num_verbs, num_objs, 
-                 hidden_projection_dim, projection_dim, hidden_dim, latent_dim,
-                 hidden_dim_dec, n_layers_dec,
-                 n_max_nodes, pool_type='add', device = 'cuda', dropout_prob=0.2, graph_type='gat'):
-        super().__init__()
-        self.projection_dim = projection_dim
-        self.graph_type = graph_type
-        self.n_max_nodes = n_max_nodes
-
-        self.linear_projection = LinearProjection(verb_feats_dim, object_feats_dim, hidden_projection_dim, projection_dim, device, dropout_prob)
-        self.encoder = myGNN(graph_type, projection_dim, hidden_dim, latent_dim, pool_type, dropout_prob, device)
-        self.decoder = Decoder(latent_dim, hidden_dim_dec, n_layers_dec, n_max_nodes)
-
     def forward(self, batch):
-        lp = self.linear_projection(batch)
-        x_g = self.encoder(lp)
-        adj = self.decoder(x_g)
-        return adj
-    
-    def encode(self, data):
-        x_g = self.encoder(data)
-        return x_g
-    
-    def decode(self, x_g):
-        adj = self.decoder(x_g)
-        return adj
+        nodes_features, graphs_latents = self.encode_graph(batch)
+        return nodes_features, graphs_latents
 
-    def loss_function(self, data):
-        x_g  = self.encoder(data)
-        adj = self.decoder(x_g)
-        A = data.A[:,:,:,0]
-        return F.l1_loss(adj, data.A)
+class EASGDecoder(nn.Module): 
+    def __init__(
+        self, num_rels, num_verbs, num_objs, input_dim, hidden_dim, 
+        dropout_prob=0.2
+        ):
+        super().__init__()
+        self.shared_mlp = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim*2),
+            nn.LayerNorm(hidden_dim*2),
+            nn.GELU(),
+            nn.Dropout(dropout_prob),
+            nn.Linear(hidden_dim*2, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+        )
+        
+        # this part is for classifying the verb starting from the graph latent code
+        self.verb_head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, num_verbs),
+        )
+        
+        # this part is for classifying the object-verb relationship from the graph latent code
+        self.rel_mlp = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, num_objs*64),
+        )
+        self.rel_head = nn.Conv1d(in_channels=64, out_channels=num_rels, kernel_size=1)
+        
+    def forward(self, codes):
+        """ decoder takes a latent code for each graph """
+        bs = codes.size(0)
+        # upsample features - common for verb and obj-verb relationships
+        shared_repr = self.shared_mlp(codes)
+        
+        #########
+        # verb classification
+        verb_cls = self.verb_head(shared_repr)  # [bs, num_verbs]
+        #########
+        
+        #########
+        # obj-verb rel classification
+        relationships = self.rel_mlp(shared_repr)  # [bs, num_objs*64]
+        relationships = relationships.view(bs, -1, 64) #  [bs, num_objs, 64]
+        relationships = relationships.permute(0,2,1) #  [bs, 64, num_objs]
+        relationships_cls = self.rel_head(relationships) #  [bs, num_rel, num_objs]
+        relationships_cls = relationships_cls.permute(0,2,1) #  [bs, num_objs, num_rel]
+        #########
+        
+        return verb_cls, relationships_cls
+    
+class EASGAutoEncoder(nn.Module): 
+    def __init__(
+        self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+        dropout_prob=0.2, graph_type='gat'
+        ):
+        super().__init__()
+        
+        self.encoder = EASGEncoder(
+            object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+            dropout_prob, graph_type
+        )
+        self.decoder = EASGDecoder(
+            num_rels, num_verbs, num_objs, output_dim, output_dim*2, dropout_prob
+        )
+    
+    def encode(self, batch):
+        _, graphs_latents = self.encoder(batch)
+        return graphs_latents
+    
+    def decode(self, graphs_latents):
+        verb_cls, relationships_cls = self.decoder(graphs_latents)
+        return verb_cls, relationships_cls
+    
+    def forward(self, batch):
+        # encode 
+        graphs_latents = self.encode(batch)
+        
+        # decode
+        verb_logits, obj_verb_rel_logits = self.decode(graphs_latents)
+        return verb_logits, obj_verb_rel_logits

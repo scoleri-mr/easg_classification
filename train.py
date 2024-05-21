@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler
 from eval import evaluation
 import matplotlib.pyplot as plt
+from autoencoder import EASGAutoEncoder
 
 def parse_args():
     parser = ArgumentParser()
@@ -36,20 +37,6 @@ def parse_args():
     parser.set_defaults(wandb=True) 
     args = parser.parse_args()
     return args
-
-def plot3losses(loss_l1, loss_l2, loss_l3):
-    x = range(len(loss_l1))
-    plt.plot(x, loss_l1, label='Loss 1')
-    plt.plot(x, loss_l2, label='Loss 2')
-    plt.plot(x, loss_l3, label='Loss 3')
-
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.title('Training Losses')
-    plt.legend()
-    plt.savefig('losses_plot.jpg')
-    plt.show()
-    return loss_l1, loss_l2, loss_l3
 
 def train(train_dataset, train_loader, validation_dataset, model, optimizer, scheduler, 
           criterion_edges, criterion_verb, criterion_objs,
@@ -110,9 +97,8 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
     
         else:
             print(f'Epoch {epoch+1}, Loss: {average_loss:.4f}')
-    
-    plot3losses(loss_l1, loss_l2, loss_l3)
-    torch.save(model.state_dict(), f'trained_models/easg_classifier{num_epochs}_{lr_start}_{graph_type}_{edge_criterion}_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
+
+    torch.save(model.state_dict(), f'trained_models/easg_diffusion{num_epochs}_{lr_start}_{graph_type}_{edge_criterion}_pd={proj_dim}_hd={hidden_dim}_outd={output_dim}.pth')
     print('Model saved!')
     recalls = evaluation(validation_dataset, model, device)
     recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = recalls
@@ -162,11 +148,11 @@ def main():
     
     cosine_annealing_param = args.num_epochs
     
-    edge_classifier = EASGClassifier(obj_dim, verb_dim, 
+    autoencoder = EASGAutoEncoder(obj_dim, verb_dim, 
                                      num_rels, num_verbs, num_objs, 
                                      args.hidden_proj_dim, args.proj_dim, args.hidden_dim, args.output_dim, 
                                      args.dropout_prob, edge_criterion, args.graph_type)
-    optimizer = Adam(edge_classifier.parameters(), lr=args.lr_start)
+    optimizer = Adam(autoencoder.parameters(), lr=args.lr_start)
     if args.scheduler_type=='cosine_annealing':
         scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=cosine_annealing_param)
     elif args.scheduler_type=='step':
@@ -182,7 +168,7 @@ def main():
                         args.edge_criterion, args.dropout_prob)
 
     # TRAIN THE MODEL
-    train(train_dataset, train_loader, validation_dataset, edge_classifier, optimizer, scheduler, 
+    train(train_dataset, train_loader, validation_dataset, autoencoder, optimizer, scheduler, 
           criterion_edges, criterion_verb, criterion_objs, 
           config, args.num_epochs, device, 
           args.proj_dim, args.hidden_dim, args.output_dim, 
