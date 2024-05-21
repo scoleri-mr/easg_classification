@@ -82,13 +82,16 @@ class myGNN(nn.Module):
             self.conv1 = GATv2Conv(input_dim, hidden_dim)
             self.conv2 = GATv2Conv(hidden_dim, output_dim)
         elif layer_type=='gin':
-            self.conv1 = GINConv(input_dim, hidden_dim)
-            self.conv2 = GINConv(hidden_dim, output_dim)
+            self.conv1 = GINConv(nn.Sequential(
+                nn.Linear(input_dim, hidden_dim)
+            ))
+            self.conv2 = GINConv(nn.Sequential(
+                nn.Linear(hidden_dim, output_dim)
+            ))
         else:
             raise Exception('Wrong graph layer type')
         self.dropout = nn.Dropout(dropout_prob)
         self.relu = nn.ReLU()
-        self.adaptive_max = nn.AdaptiveMaxPool1d(output_dim)
 
     def forward(self, nodes_features, edge_index):
         nodes_features = self.dropout(self.relu(self.conv1(nodes_features, edge_index)))
