@@ -1,12 +1,12 @@
 import os
 import os.path as osp
+import numpy as np
 from dataset import EASGDatasetAE
 from pathlib import Path
 from torch_geometric.loader import DataLoader
 from argparse import ArgumentParser
 import torch.optim.lr_scheduler as lr_scheduler
 import wandb
-from utils import set_wandb_config
 from models import EASG_AutoEncoder
 import torch
 from torch import cuda
@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
 import time
+from sklearn.metrics import accuracy_score, balanced_accuracy_score
 
 
 def parse_args():
@@ -48,11 +49,11 @@ def parse_args():
                         help='criterion for edge creation: elementwise mean/max or their concatenation between two adjacent nodes')
     parser.add_argument('--dropout_prob', type=float,
                         default=0.2, help='dropout probability for gnn layers')
-    parser.add_argument('--wandb', dest='wandb', action='store_true')
-    parser.add_argument('--no-wandb', dest='wandb', action='store_false')
+    parser.add_argument('--wandb', action='store_true', help="If specified enables wandb logging")
     parser.add_argument('--graph_type', type=str, default='gcn',
                         help='choose between graph layers: gcn, sage, gat, gin')
-    parser.set_defaults(wandb=True)
+    parser.add_argument('--exp_name', type=str, default=None,
+                        help='experiment name')
     args = parser.parse_args()
     return args
 
@@ -79,22 +80,20 @@ def save_checkpoint(model, optimizer, epoch, path):
     print(f'Checkpoint saved to {path}')
 
 
-def train(
-    train_loader, validation_dataset, model, optimizer, scheduler, config, num_epochs, device, proj_dim,
-    hidden_dim, output_dim, wandb_log, edge_criterion, graph_type, lr_start
-):
-    exp_name = f"experiments/AE_{str(int(time.time()))}"
+def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
+    if opt.exp_name is None:
+        opt.exp_name = f"AE_{str(int(time.time()))}"
+        
     model = model.to(device)
-    if wandb_log:
-        wandb.init(project=f'easg_ae_{graph_type}', config=config)
-        wandb.watch(model, log="all")
-
-    for epoch in range(num_epochs):
+    if opt.wandb:
+        wandb.init(project=f'easg_ae_{opt.graph_type}', config=opt, name=opt.exp_name)
+        wandb.watch(model, log="all")        
+        
+    print(f"Training - exp name: {opt.exp_name}")
+    for epoch in range(opt.num_epochs):
         model.train()
-        count = 0
         for bidx, _data in tqdm(enumerate(train_loader, 0), unit="batch", total=len(train_loader)):
             batch, verb_gt, rel_gt = _data
-            count += 1
             batch = batch.to(device)
             verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
             # TODO: num_rels+1 is managed at the dataset level
@@ -108,21 +107,55 @@ def train(
             loss = loss_verb + loss_rel
             loss.backward()
             optimizer.step()
-            if wandb_log and bidx % 10 == 0:
+            if bidx % 10 == 0:
                 current_lr = scheduler.get_last_lr()[0]
-                wandb.log({"loss": loss, "loss_verb": loss_verb,
-                          "loss_rel": loss_rel, "current_lr": current_lr})
-                print(
-                    f"epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}")
+                print(f"Train epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}")
+                if opt.wandb: wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "current_lr": current_lr})
+                    
         scheduler.step()
-
-        if epoch % 20 == 0:
-            save_dir = f"./{exp_name}/checkpoints"
+        
+        if epoch % 2 == 0:
+            ##############
+            # EVALUATION #
+            ##############
+            model = model.eval()
+            list_pred_verb, list_gt_verb = [], []
+            list_pred_rel, list_gt_rel = [], []
+            for bidx, _data in tqdm(enumerate(val_loader, 0), unit="batch", total=len(val_loader), desc="Validation"):
+                batch, verb_gt, rel_gt = _data
+                batch = batch.to(device)
+                verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
+                # TODO: num_rels+1 is managed at the dataset level
+                rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
+                out_verb, out_rel = model(batch)
+                loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
+                out_rel = out_rel.contiguous().view(-1, 14)
+                rel_gt = rel_gt.argmax(-1).view(-1)
+                loss_rel = F.cross_entropy(input=out_rel, target=rel_gt)
+                loss = loss_verb + loss_rel
+                # store val batch results for computing global accuracy and balanced accuracy
+                list_pred_verb.append(out_verb.argmax(-1).cpu().numpy())
+                list_pred_rel.append(out_rel.argmax(-1).cpu().numpy())
+                list_gt_verb.append(verb_gt.cpu().numpy())
+                list_gt_rel.append(rel_gt.cpu().numpy())
+            
+            list_pred_verb, list_gt_verb= np.concatenate(list_pred_verb), np.concatenate(list_gt_verb)
+            list_pred_rel, list_gt_rel = np.concatenate(list_pred_rel), np.concatenate(list_gt_rel)
+            acc_verb, balacc_verb = accuracy_score(y_true=list_gt_verb, y_pred=list_pred_verb), balanced_accuracy_score(y_true=list_gt_verb, y_pred=list_pred_verb)
+            acc_rel, balacc_rel = accuracy_score(y_true=list_gt_rel, y_pred=list_pred_rel), balanced_accuracy_score(y_true=list_gt_rel, y_pred=list_pred_rel)
+            print(f"Validation epoch {epoch}, acc_verb: {acc_verb:.4f}, balAcc_verb: {balacc_verb:.4f}, acc_rel: {acc_rel:.4f}, balAcc_rel: {balacc_rel:.4f}")
+            if opt.wandb: 
+                wandb.log({"val/verb/acc": acc_verb, "val/verb/balAcc": balacc_verb, "val/rel/acc": acc_rel, "val/rel/balAcc": balacc_rel, "val/epoch": epoch})
+            
+            
+            ##############
+            # CHECKPOINT #
+            ##############
+            save_dir = f"./experiments/{opt.exp_name}/checkpoints"
             os.makedirs(save_dir, exist_ok=True)
-            save_checkpoint(model=model, optimizer=optimizer,
-                            epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
+            save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 
-    if wandb_log:
+    if opt.wandb:
         wandb.finish()
 
 
@@ -188,16 +221,9 @@ def main():
     else:
         raise Exception('Wrong scheduler type')
 
-    config = set_wandb_config(args.num_epochs, args.hidden_proj_dim, args.proj_dim,
-                              args.hidden_dim, args.output_dim, args.batch_size, args.scheduler_type,
-                              args.lr_start, args.lr_step_size, args.lr_gamma, cosine_annealing_param,
-                              args.edge_criterion, args.dropout_prob)
-
     # TRAIN THE MODEL
-    train(train_loader, validation_dataset, model, optimizer, scheduler,
-          config, args.num_epochs, device,
-          args.proj_dim, args.hidden_dim, args.output_dim,
-          args.wandb, args.edge_criterion, args.graph_type, args.lr_start)
+    # TODO: better to have a train_one_epoch() fun.
+    train(train_loader=train_loader, val_loader=val_loader, model=model, optimizer=optimizer, scheduler=scheduler, device=device, opt=args)
 
 
 if __name__ == "__main__":
