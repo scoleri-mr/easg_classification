@@ -18,6 +18,9 @@ from tqdm import tqdm
 import time
 from sklearn.metrics import accuracy_score, balanced_accuracy_score
 
+""""
+example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epochs200 --num_epochs 200
+"""
 
 def parse_args():
     parser = ArgumentParser()
