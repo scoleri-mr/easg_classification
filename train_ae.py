@@ -1,7 +1,6 @@
 import os
 import os.path as osp
-from run_easg import EASGData
-from dataset import myEASGDataset
+from dataset import EASGDatasetAE
 from pathlib import Path
 from torch_geometric.loader import DataLoader
 from argparse import ArgumentParser
@@ -13,7 +12,6 @@ import torch
 from torch import cuda
 from torch.optim import Adam
 import torch.nn as nn
-from eval import evaluation
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -22,6 +20,8 @@ import time
 
 def parse_args():
     parser = ArgumentParser()
+    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--val_batch_size', type=int, default=64)
     parser.add_argument('--ann_path', type=str,
                         default='./annts_in_new_format/', help='path to annotations')
     parser.add_argument('--data_path', type=str,
@@ -57,21 +57,6 @@ def parse_args():
     return args
 
 
-def plot3losses(loss_l1, loss_l2, loss_l3):
-    x = range(len(loss_l1))
-    plt.plot(x, loss_l1, label='Loss 1')
-    plt.plot(x, loss_l2, label='Loss 2')
-    plt.plot(x, loss_l3, label='Loss 3')
-
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.title('Training Losses')
-    plt.legend()
-    plt.savefig('losses_plot.jpg')
-    plt.show()
-    return loss_l1, loss_l2, loss_l3
-
-
 def save_checkpoint(model, optimizer, epoch, path):
     """
     Saves a checkpoint of the model and optimizer states, along with training metadata.
@@ -92,10 +77,12 @@ def save_checkpoint(model, optimizer, epoch, path):
     }
     torch.save(checkpoint, path)
     print(f'Checkpoint saved to {path}')
-    
 
-def train(train_loader, validation_dataset, model, optimizer, scheduler, config, num_epochs, device, proj_dim,
-          hidden_dim, output_dim, wandb_log, edge_criterion, graph_type, lr_start):
+
+def train(
+    train_loader, validation_dataset, model, optimizer, scheduler, config, num_epochs, device, proj_dim,
+    hidden_dim, output_dim, wandb_log, edge_criterion, graph_type, lr_start
+):
     exp_name = f"experiments/AE_{str(int(time.time()))}"
     model = model.to(device)
     if wandb_log:
@@ -109,8 +96,9 @@ def train(train_loader, validation_dataset, model, optimizer, scheduler, config,
             batch, verb_gt, rel_gt = _data
             count += 1
             batch = batch.to(device)
-            verb_gt = verb_gt.view(-1).to(device)  #  [bs, ]
-            rel_gt = rel_gt.to(device)  # [bs,num_objs,num_rels+1]
+            verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
+            # TODO: num_rels+1 is managed at the dataset level
+            rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
             optimizer.zero_grad()
             out_verb, out_rel = model(batch)
             loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
@@ -122,15 +110,18 @@ def train(train_loader, validation_dataset, model, optimizer, scheduler, config,
             optimizer.step()
             if wandb_log and bidx % 10 == 0:
                 current_lr = scheduler.get_last_lr()[0]
-                wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "current_lr": current_lr})
-                print(f"epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}")
+                wandb.log({"loss": loss, "loss_verb": loss_verb,
+                          "loss_rel": loss_rel, "current_lr": current_lr})
+                print(
+                    f"epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}")
         scheduler.step()
-        
+
         if epoch % 20 == 0:
             save_dir = f"./{exp_name}/checkpoints"
             os.makedirs(save_dir, exist_ok=True)
-            save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
-            
+            save_checkpoint(model=model, optimizer=optimizer,
+                            epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
+
     if wandb_log:
         wandb.finish()
 
@@ -152,14 +143,12 @@ def main():
 
     path_annts = Path(args.ann_path)
     path_data = Path(args.data_path)
+    
+    train_dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 
-    train_original = EASGData(path_annts, path_data, 'train', verbs, objs, rels)
-    train_dataset = myEASGDataset(train_original)
-    batch_size = 64
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-
-    validation_original = EASGData(path_annts, path_data, 'val', verbs, objs, rels)
-    validation_dataset = myEASGDataset(validation_original)
+    validation_dataset = EASGDatasetAE(path_annts, path_data, 'val', verbs, objs, rels)
+    val_loader = DataLoader(validation_dataset, batch_size=args.val_batch_size, shuffle=False, drop_last=False)
 
     # DEFINE THE MODEL  AND IT'PARAMETERS
     device = 'cuda' if cuda.is_available() else print('CUDA NOT AVAILABLE')
@@ -198,9 +187,9 @@ def main():
             optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
     else:
         raise Exception('Wrong scheduler type')
-    
+
     config = set_wandb_config(args.num_epochs, args.hidden_proj_dim, args.proj_dim,
-                              args.hidden_dim, args.output_dim, batch_size, args.scheduler_type,
+                              args.hidden_dim, args.output_dim, args.batch_size, args.scheduler_type,
                               args.lr_start, args.lr_step_size, args.lr_gamma, cosine_annealing_param,
                               args.edge_criterion, args.dropout_prob)
 

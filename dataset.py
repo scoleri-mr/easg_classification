@@ -1,41 +1,216 @@
-from run_easg import EASGData
 from pathlib import Path
 import torch
 from torch_geometric.data import Data, Dataset
-from torch_geometric.loader import DataLoader
-
-import torch
-from torch_geometric.data import Data, Dataset
-from torch_geometric.loader import DataLoader
 import copy
+import pickle
 
+# original dataset
+class EASGData(Dataset):
+    def __init__(self, path_annts, path_data, split, verbs, objs, rels):
+        self.path_annts = path_annts
+        self.path_data = path_data
+        self.split = split
+        with open(path_annts / f'easg_{split}.pkl', 'rb') as f:
+            annts = pickle.load(f)
 
-class myEASGDataset(Dataset):
-    def __init__(self, data_list):
-        self.data_list = data_list
+        with open(path_data / f'roi_feats_{split}.pkl', 'rb') as f:
+            roi_feats = pickle.load(f)
+
+        clip_feats = torch.load(path_data / 'verb_features.pt')
+
+        """
+        graph:
+            dict['verb_idx']: index of its verb
+            dict['clip_feat']: 2304-D clip-wise feature vector
+            dict['objs']: dict of obj_idx
+                dict[obj_idx]: dict    
+                    dict['obj_feat']: 1024-D ROI feature vector
+                    dict['rels_vec']: multi-hot vector of relationships
+
+        graph_batch:
+            dict['verb_idx']: index of its verb
+            dict['clip_feat']: 2304-D clip-wise feature vector
+            dict['obj_indices']: batched version of obj_idx
+            dict['obj_feats']: batched version of obj_feat
+            dict['rels_vecs']: batched version of rels_vec
+            dict['triplets']: all the triplets consisting of (verb, obj, rel)
+        """
+        graphs = []
+        for graph_uid in annts:
+            graph = {}
+            for aid in annts[graph_uid]['annotations']: # cycle on all the annotations of the graph
+                for i, annt in enumerate(annts[graph_uid]['annotations'][aid]):
+                    verb_idx = verbs.index(annt['verb'])
+                    if verb_idx not in graph:
+                        graph[verb_idx] = {}
+                        graph[verb_idx]['verb_idx'] = verb_idx
+                        graph[verb_idx]['objs'] = {}
+
+                    graph[verb_idx]['clip_feat'] = clip_feats[aid]
+
+                    obj_idx = objs.index(annt['obj'])
+                    if obj_idx not in graph[verb_idx]['objs']:
+                        graph[verb_idx]['objs'][obj_idx] = {}
+                        graph[verb_idx]['objs'][obj_idx]['obj_feat'] = torch.zeros((0, 1024), dtype=torch.float32)
+                        graph[verb_idx]['objs'][obj_idx]['rels_vec'] = torch.zeros(len(rels), dtype=torch.float32)
+
+                    rel_idx = rels.index(annt['rel'])
+                    graph[verb_idx]['objs'][obj_idx]['rels_vec'][rel_idx] = 1
+
+                    for frameType in roi_feats[graph_uid][aid][i]:
+                        graph[verb_idx]['objs'][obj_idx]['obj_feat'] = torch.cat((graph[verb_idx]['objs'][obj_idx]['obj_feat'], roi_feats[graph_uid][aid][i][frameType]), dim=0)
+
+            for verb_idx in graph:
+                for obj_idx in graph[verb_idx]['objs']:
+                    graph[verb_idx]['objs'][obj_idx]['obj_feat'] = graph[verb_idx]['objs'][obj_idx]['obj_feat'].mean(dim=0)
+
+                graphs.append(graph[verb_idx])
+
+        self.graphs = []
+        for graph in graphs:
+            graph_batch = {}
+            verb_idx = graph['verb_idx']
+            graph_batch['verb_idx'] = torch.tensor([verb_idx], dtype=torch.long)
+            graph_batch['clip_feat'] = graph['clip_feat']
+            graph_batch['obj_indices'] = torch.zeros(0, dtype=torch.long)
+            graph_batch['obj_feats'] = torch.zeros((0, 1024), dtype=torch.float32)
+            graph_batch['rels_vecs'] = torch.zeros((0, len(rels)), dtype=torch.float32)
+            graph_batch['triplets'] = torch.zeros((0, 3), dtype=torch.long)
+
+            for obj_idx in graph['objs']:
+                graph_batch['obj_indices'] = torch.cat((graph_batch['obj_indices'], torch.tensor([obj_idx], dtype=torch.long)), dim=0)
+                graph_batch['obj_feats'] = torch.cat((graph_batch['obj_feats'], graph['objs'][obj_idx]['obj_feat'].unsqueeze(0)), dim=0)
+
+                rels_vec = graph['objs'][obj_idx]['rels_vec']
+                graph_batch['rels_vecs'] = torch.cat((graph_batch['rels_vecs'], rels_vec.unsqueeze(0)), dim=0)
+
+                triplets = []
+                for rel_idx in torch.where(rels_vec)[0]:
+                    triplets.append((verb_idx, obj_idx, rel_idx.item()))
+                graph_batch['triplets'] = torch.cat((graph_batch['triplets'], torch.tensor(triplets, dtype=torch.long)), dim=0)
+
+            self.graphs.append(graph_batch)
 
     def __len__(self):
-        return len(self.data_list)
+        return len(self.graphs)
+
+    def __getitem__(self, idx):
+        return self.graphs[idx]
+    
+    
+class EASGDatasetAE(Dataset):
+    def __init__(self, path_annts, path_data, split, verbs, objs, rels):
+        self.whoami = "EASGDatasetAE"
+        self.path_annts = path_annts
+        self.path_data = path_data
+        self.split = split
+        self.num_objs = len(objs)
+        self.num_verbs = len(verbs)
+        self.num_rels = len(rels)
+        print(f"{self.whoami} - {split} - num_objs: {self.num_objs}, num_verbs: {self.num_verbs}, num_rels: {self.num_rels} ")
+        with open(path_annts / f'easg_{split}.pkl', 'rb') as f:
+            annts = pickle.load(f)
+
+        with open(path_data / f'roi_feats_{split}.pkl', 'rb') as f:
+            roi_feats = pickle.load(f)
+
+        clip_feats = torch.load(path_data / 'verb_features.pt')
+
+        """
+        graph:
+            dict['verb_idx']: index of its verb
+            dict['clip_feat']: 2304-D clip-wise feature vector
+            dict['objs']: dict of obj_idx
+                dict[obj_idx]: dict    
+                    dict['obj_feat']: 1024-D ROI feature vector
+                    dict['rels_vec']: multi-hot vector of relationships
+
+        graph_batch:
+            dict['verb_idx']: index of its verb
+            dict['clip_feat']: 2304-D clip-wise feature vector
+            dict['obj_indices']: batched version of obj_idx
+            dict['obj_feats']: batched version of obj_feat
+            dict['rels_vecs']: batched version of rels_vec
+            dict['triplets']: all the triplets consisting of (verb, obj, rel)
+        """
+        graphs = []
+        for graph_uid in annts:
+            graph = {}
+            for aid in annts[graph_uid]['annotations']: # cycle on all the annotations of the graph
+                for i, annt in enumerate(annts[graph_uid]['annotations'][aid]):
+                    verb_idx = verbs.index(annt['verb'])
+                    if verb_idx not in graph:
+                        graph[verb_idx] = {}
+                        graph[verb_idx]['verb_idx'] = verb_idx
+                        graph[verb_idx]['objs'] = {}
+
+                    graph[verb_idx]['clip_feat'] = clip_feats[aid]
+
+                    obj_idx = objs.index(annt['obj'])
+                    if obj_idx not in graph[verb_idx]['objs']:
+                        graph[verb_idx]['objs'][obj_idx] = {}
+                        graph[verb_idx]['objs'][obj_idx]['obj_feat'] = torch.zeros((0, 1024), dtype=torch.float32)
+                        graph[verb_idx]['objs'][obj_idx]['rels_vec'] = torch.zeros(len(rels), dtype=torch.float32)
+
+                    rel_idx = rels.index(annt['rel'])
+                    graph[verb_idx]['objs'][obj_idx]['rels_vec'][rel_idx] = 1
+
+                    for frameType in roi_feats[graph_uid][aid][i]:
+                        graph[verb_idx]['objs'][obj_idx]['obj_feat'] = torch.cat((graph[verb_idx]['objs'][obj_idx]['obj_feat'], roi_feats[graph_uid][aid][i][frameType]), dim=0)
+
+            for verb_idx in graph:
+                for obj_idx in graph[verb_idx]['objs']:
+                    graph[verb_idx]['objs'][obj_idx]['obj_feat'] = graph[verb_idx]['objs'][obj_idx]['obj_feat'].mean(dim=0)
+
+                graphs.append(graph[verb_idx])
+
+        self.graphs = []
+        for graph in graphs:
+            graph_batch = {}
+            verb_idx = graph['verb_idx']
+            graph_batch['verb_idx'] = torch.tensor([verb_idx], dtype=torch.long)
+            graph_batch['clip_feat'] = graph['clip_feat']
+            graph_batch['obj_indices'] = torch.zeros(0, dtype=torch.long)
+            graph_batch['obj_feats'] = torch.zeros((0, 1024), dtype=torch.float32)
+            graph_batch['rels_vecs'] = torch.zeros((0, len(rels)), dtype=torch.float32)
+            graph_batch['triplets'] = torch.zeros((0, 3), dtype=torch.long)
+
+            for obj_idx in graph['objs']:
+                graph_batch['obj_indices'] = torch.cat((graph_batch['obj_indices'], torch.tensor([obj_idx], dtype=torch.long)), dim=0)
+                graph_batch['obj_feats'] = torch.cat((graph_batch['obj_feats'], graph['objs'][obj_idx]['obj_feat'].unsqueeze(0)), dim=0)
+
+                rels_vec = graph['objs'][obj_idx]['rels_vec']
+                graph_batch['rels_vecs'] = torch.cat((graph_batch['rels_vecs'], rels_vec.unsqueeze(0)), dim=0)
+
+                triplets = []
+                for rel_idx in torch.where(rels_vec)[0]:
+                    triplets.append((verb_idx, obj_idx, rel_idx.item()))
+                graph_batch['triplets'] = torch.cat((graph_batch['triplets'], torch.tensor(triplets, dtype=torch.long)), dim=0)
+
+            self.graphs.append(graph_batch)
+
+    def __len__(self):
+        return len(self.graphs)
 
     def get_object_indices(self, idx):
-        data_dict = self.data_list[idx]
+        data_dict = self.graphs[idx]
         obj_indices = data_dict['obj_indices']
         return obj_indices
 
     def get_verb_index(self, idx):
-        data_dict = self.data_list[idx]
+        data_dict = self.graphs[idx]
         verb_idx = data_dict['verb_idx']
         return verb_idx
 
     def get_original_triplets(self, idx):
         ''' this contain the original triplets with the indexing that uses
         the two different objects and verb files'''
-        data_dict = self.data_list[idx]
+        data_dict = self.graphs[idx]
         triplets = data_dict['triplets']
         return triplets
 
     def get_rels(self, idx):
-        data_dict = self.data_list[idx]
+        data_dict = self.graphs[idx]
         rels_vecs = data_dict['rels_vecs']
         return rels_vecs
 
@@ -73,45 +248,43 @@ class myEASGDataset(Dataset):
 
     def __getitem__(self, idx):
         # Extract data from the dictionary
-        # TODO: questa cosa non va ASSOLUTAMENTE bene
-        num_objs = 391
-        num_rels = 13
-        data_dict = copy.deepcopy(self.data_list[idx])
-        clip_features = data_dict['clip_feat']
-        obj_feats = data_dict['obj_feats']
-        triplets = copy.deepcopy(data_dict['triplets'])
-        rels = data_dict['rels_vecs']
-        verb_idx = data_dict['verb_idx']
-        obj_indices = data_dict['obj_indices']
+        # TODO: why these deepcopies???? previous logic was messing up - now it shouldn't be needed
+        item = copy.deepcopy(self.graphs[idx])
+        clip_features = item['clip_feat']
+        obj_feats = item['obj_feats']
+        triplets = copy.deepcopy(item['triplets'])
+        rels = item['rels_vecs']
+        verb_idx = item['verb_idx']
+        obj_indices = item['obj_indices']
 
         # Concatenate clip and object features, pad the object features to match clip features
         clip_features = clip_features.unsqueeze(0)
-        obj_feats = torch.cat([obj_feats, torch.zeros(obj_feats.size(0), clip_features.size(1) - obj_feats.size(1))],
-                              dim=1)
+        obj_feats = torch.cat([obj_feats, torch.zeros(obj_feats.size(0), clip_features.size(1) - obj_feats.size(1))], dim=1)
         x = torch.cat([clip_features, obj_feats], dim=0)
 
         # Create edge index tensor
         edge_index = self.triplets2edge_index(triplets)
 
-
-        # TODO: add a relationship "num_rels+1" to model the non-presence of object
+        # TODO: using additional relationship "idx:num_rels" to model the non-presence of object
         # Create target tensors for object-verb relationships
-        gt_rels = torch.zeros((num_objs, num_rels+1)).long()
-        for obj_idx in range(num_objs):
+        gt_rels = torch.zeros((self.num_objs, self.num_rels+1)).long()
+        for obj_idx in range(self.num_objs):
             positions = (obj_indices == obj_idx).nonzero(as_tuple=True)[0]
             if positions.numel() == 1:
-                # object is present
+                # object is present in scene graph and has relationship with verb
                 positions = positions[0].item()
                 curr_rel = rels.argmax(-1)[positions]
                 gt_rels[obj_idx, curr_rel] = 1
             elif positions.numel() == 0:
-                # not existing object
+                # object is not present in scene graph
                 gt_rels[obj_idx, -1] = 1
             else:
                 assert False, "sth wrong happened!"
 
         # Create PyTorch Geometric Data object
         data = Data(x=x, edge_index=edge_index)
+        
+        # TODO: don't need to encapsulate the GTs in pytorch geometric structure, these have the same size for each elem. in batch!
         return data, verb_idx, gt_rels
 
 
