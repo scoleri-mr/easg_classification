@@ -8,7 +8,7 @@ from torch_geometric.loader import DataLoader
 from argparse import ArgumentParser
 import torch.optim.lr_scheduler as lr_scheduler
 import wandb
-from models import EASG_AutoEncoder
+from autoencoder import EASG_AutoEncoder
 import torch
 from torch import cuda
 from torch.optim import Adam

@@ -67,10 +67,9 @@ class myGNN(nn.Module):
         simply returning the elementwise max or mean between the two nodes that 
         form the edge    
     '''
-    def __init__(self, layer_type, input_dim, hidden_dim, output_dim, dropout_prob, edge_creation):
+    def __init__(self, layer_type, input_dim, hidden_dim, output_dim, dropout_prob):
         super().__init__()
         self.output_dim = output_dim
-        self.edge_creation = edge_creation
         self.layer_type = layer_type
 
         if layer_type=='gcn':
@@ -94,41 +93,12 @@ class myGNN(nn.Module):
     def forward(self, nodes_features, edge_index):
         nodes_features = self.dropout(self.relu(self.conv1(nodes_features, edge_index)))
         nodes_features = self.dropout(self.relu(self.conv2(nodes_features, edge_index)))
-        edge_features = self.compute_edge_features(nodes_features, edge_index, self.output_dim)
-        return nodes_features, edge_features
-    
-    def compute_edge_features(self, nodes_features, edge_index, edge_dim):
-        device = nodes_features.device
-        edge_features = []
-        for i in range(edge_index.size(1)):
-            if self.edge_creation == 'max':
-                edge_features.append(torch.max(nodes_features[edge_index[:, i]], dim=0)[0])
-            elif self.edge_creation == 'mean':
-                edge_features.append(torch.max(nodes_features[edge_index[:, i]], dim=0)[0])
-            elif self.edge_creation == 'conc':
-                m = torch.max(nodes_features[edge_index[:, i]], dim=0)[0]
-                av = torch.mean(nodes_features[edge_index[:, i]], dim=0)
-                edge_features.append(self.adaptive_max(torch.cat((m,av), dim=0).unsqueeze(0)).squeeze(0))
-        edge_features = torch.stack(edge_features, dim=0)
-        return edge_features.to(device)
+        return nodes_features
 
-class myClassifier(nn.Module):
-    def __init__(self, input_dim, num_rels, num_verbs, num_objs):
-        super().__init__()
-        self.fc_edges = nn.Linear(input_dim, num_rels)
-        self.fc_verbs = nn.Linear(input_dim, num_verbs)
-        self.fc_objs = nn.Linear(input_dim, num_objs)
-
-    def forward(self, nodes_features, edge_features):
-        logits_edges = self.fc_edges(edge_features) # n_edgesx13
-        logits_verb = self.fc_verbs(nodes_features[0].unsqueeze(0)) # 1x198
-        logits_objs = self.fc_objs(nodes_features[1:]) #n_oggx391
-        return logits_edges, logits_verb, logits_objs 
-
-class EASGClassifier(nn.Module): 
+class EASGEncoder(nn.Module): 
     def __init__(
         self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-        dropout_prob=0.2, edge_creation='mean', graph_type='gat'
+        dropout_prob=0.2, graph_type='gat'
         ):
         super().__init__()
         self.object_feats_dim = object_feats_dim
@@ -140,8 +110,7 @@ class EASGClassifier(nn.Module):
             dropout_prob=dropout_prob
             )
         self.graph_type = graph_type
-        self.gnn = myGNN(graph_type, projection_dim, hidden_dim, output_dim, dropout_prob, edge_creation)
-        self.cls = myClassifier(output_dim, num_rels, num_verbs, num_objs)
+        self.gnn = myGNN(graph_type, projection_dim, hidden_dim, output_dim, dropout_prob)
 
     def encode_graph(self, batch):
         out, mask = tg.utils.to_dense_batch(batch.x,batch.batch)  # [bs,max_nodes,2304], [bs,max_nodes]
@@ -165,15 +134,13 @@ class EASGClassifier(nn.Module):
         # edge index are kept the same
         edge_index = batch.edge_index
         
-        nodes_features, edge_features = self.gnn(nodes_features, edge_index)
+        nodes_features = self.gnn(nodes_features, edge_index)
         graphs_latents = global_max_pool(nodes_features, batch.batch)
-        return nodes_features, edge_features, graphs_latents
-        
+        return nodes_features, graphs_latents
+    
+    # this forward doesn't work.........
     def forward(self, batch):
-        """ classification forward """
-        nodes_features, edge_features, graphs_latents = self.encode_graph(batch)
-        logits_edges, logits_verb, logits_objs = self.cls(nodes_features, edge_features)
-        return logits_edges, logits_verb, logits_objs
+        return self.encode(batch)
     
     
 class EASGDecoder(nn.Module): 
@@ -241,9 +208,9 @@ class EASG_AutoEncoder(nn.Module):
         ):
         super().__init__()
         
-        self.encoder = EASGClassifier(
+        self.encoder = EASGEncoder(
             object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-            dropout_prob, edge_creation, graph_type
+            dropout_prob, graph_type
         )
         self.decoder = EASGDecoder(
             num_rels, num_verbs, num_objs, output_dim, output_dim*2, dropout_prob
@@ -251,7 +218,7 @@ class EASG_AutoEncoder(nn.Module):
         
     def forward(self, batch):
         # encode 
-        _, _, graphs_latents = self.encoder.encode_graph(batch)
+        _, graphs_latents = self.encoder.encode_graph(batch)
         
         # decode
         verb_logits, obj_verb_rel_logits = self.decoder(graphs_latents)
