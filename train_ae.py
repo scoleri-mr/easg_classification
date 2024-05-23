@@ -296,9 +296,6 @@ def eval(dataloader, model, device, opt):
                 print(f"[GT] OBJ: {data_ref.get_obj_name(gt_obj[j])} - REL: {data_ref.get_rel_name(gt_obj_rel[j])} - VERB: {data_ref.get_verb_name(verb_gt)}")
             print("-"*30)
 
-            
-            
-            
 
 def main():
     # GET TRAINING DATASET
