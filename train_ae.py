@@ -168,10 +168,12 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             optimizer.zero_grad()
             out_verb, out_rel = model(batch)
             loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
-            out_rel = out_rel.contiguous().view(-1, 14)
-            
-            rel_gt = rel_gt.argmax(-1).view(-1)
-            loss_rel = F.cross_entropy(input=out_rel, target=rel_gt)
+            out_rel = out_rel.contiguous().view(-1, 14) 
+            rel_gt = rel_gt.view(-1, 14)
+            # rel_gt = rel_gt.argmax(-1).view(-1)
+            # loss_rel = F.cross_entropy(input=out_rel, target=rel_gt)
+            # TODO: moved from Cross-Entropy to BCE for multiple relation prediction at each object
+            loss_rel = F.binary_cross_entropy_with_logits(input=out_rel, target=rel_gt)
             loss = loss_verb + loss_rel
             loss.backward()
             optimizer.step()
@@ -198,22 +200,20 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 out_verb, out_rel = model(batch)
                 loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
                 out_rel = out_rel.contiguous().view(-1, 14)
-                rel_gt = rel_gt.argmax(-1).view(-1)
-                loss_rel = F.cross_entropy(input=out_rel, target=rel_gt)
-                loss = loss_verb + loss_rel
                 # store val batch results for computing global accuracy and balanced accuracy
                 list_logits_verb.append(out_verb.cpu().detach())
                 list_logits_rel.append(out_rel.cpu().detach())
                 list_gt_verb.append(verb_gt.cpu().detach())
-                list_gt_rel.append(rel_gt.cpu().detach())
+                list_gt_rel.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
             
             list_logits_verb = torch.cat(list_logits_verb, dim=0)
             list_pred_verb = torch.argmax(list_logits_verb, -1)
             list_logits_rel = torch.cat(list_logits_rel, dim=0)
-            list_pred_rel = torch.argmax(list_logits_rel, -1)
+            list_pred_rel = torch.argmax(list_logits_rel, -1)  # TODO: this does not address multiple verb-obj relationships!
             list_gt_verb = torch.cat(list_gt_verb, dim=0)
             list_gt_rel = torch.cat(list_gt_rel, dim=0)
             
+            # TODO: during training the accuracy of realtions is not 100% correct - we consider only one relation at maximum for each object!
             # compute accuracy
             acc_verb, balacc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
             acc_rel, balacc_rel = accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy())
