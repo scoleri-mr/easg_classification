@@ -246,6 +246,9 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
         wandb.finish()
 
 def eval(dataloader, model, device, opt):
+    """
+    Mainly used for debug
+    """
     model = model.to(device)
     model.eval()
     count = -1
@@ -258,42 +261,61 @@ def eval(dataloader, model, device, opt):
         # let's try to rebuild gt and predicted graph!
         batch_gt_verb = batch_gt_verb.view(-1).to(device)  # [bs, ]
         batch_gt_rel = batch_gt_rel.to(device)  # [bs, num_objs, num_rels+1]
+        threshold = 0.5
+        no_obj_rel = batch_pred_rel.size(-1) - 1  # this will be num_rels
         
+        assert isinstance(dataloader.dataset, EASGDatasetAE)
+        get_verb_name = dataloader.dataset.get_verb_name
+        get_obj_name = dataloader.dataset.get_obj_name
+        get_rel_name = dataloader.dataset.get_rel_name
+
         for i in range(bs):
-            count += 1        
+            count += 1
             # verb pred/gt
             verb_pred = batch_pred_verb[i].argmax(-1).item()
             verb_gt = batch_gt_verb[i].item()
             
             # obj-rel pred
+            # 1. there can be multiple obj-verb relationships 
+            # 2. we need to apply sigmoid to obtain the score since we used BCE for training
             pred_rel_logits = batch_pred_rel[i]  # [num_obj, num_rel + 1]
-            pred_rel = pred_rel_logits.argmax(-1)
-            # Create a mask for elements not equal to non-object label
-            mask = pred_rel != 13
-            # Find indices of elements not equal to X
-            pred_obj = mask.nonzero(as_tuple=False)
-            pred_obj_rel = pred_rel[pred_obj]
-            
-            # obj-rel gt
-            gt_rel = batch_gt_rel[i].argmax(-1)
-            # Create a mask for elements not equal to non-object label
-            mask = gt_rel != 13
-            # Find indices of elements not equal to X
-            gt_obj = mask.nonzero(as_tuple=False)
-            gt_obj_rel = gt_rel[gt_obj]
-            
-            
-            # TODO: make better
-            data_ref = dataloader.dataset
-            assert isinstance(data_ref, EASGDatasetAE)
+            pred_rel_scores = F.sigmoid(pred_rel_logits)  # [num_obj, num_rel + 1]
+            # each num_obj can have multiple (>=1) predictions!
+            # List to hold the indices of elements greater than the threshold
+            pred_rel = {}  # key is object index - values are obj-verb relationships
+            for obj_idx in range(pred_rel_scores.size(0)):
+                # Get indices where tensor elements are greater than the threshold
+                indices = torch.where(pred_rel_scores[obj_idx] > threshold)[0].tolist()
+                # TODO: because of BCE logic we can concurrently predict a valid relation (index<13) and no-obj-relation (index=13)
+                if no_obj_rel in indices: # if len(indices) == 1 and indices[0] == no_obj_rel:
+                    # object not present in graph
+                    continue
+                else:
+                    # pred_rel[obj_idx] = indices
+                    # using names...
+                    pred_rel[get_obj_name(obj_idx)] = [get_rel_name(r_i) for r_i in indices]
+                    
+            # obj-rel GT
+            _gt_rel = batch_gt_rel[i]  # [num_objs, num_rels+1] - 0/1 elements - there can be multiple 1 at each num_objs row
+            gt_rel = {}  # key is object index - values are obj-verb relationships
+            for obj_idx in range(_gt_rel.size(0)):
+                # Get indices where tensor elements are greater than the threshold
+                indices = torch.where(_gt_rel[obj_idx] > threshold)[0].tolist()
+                if no_obj_rel in indices: # if len(indices) == 1 and indices[0] == no_obj_rel:
+                    # object not present in graph
+                    continue
+                else:
+                    # gt_rel[obj_idx] = indices
+                    # using names....
+                    gt_rel[get_obj_name(obj_idx)] = [get_rel_name(r_i) for r_i in indices]
+                    
             
             print("-"*30)
             print(f"Item [{count}]-th: ")
-            for j in range(len(pred_obj)):
-                print(f"[PRED] OBJ: {data_ref.get_obj_name(pred_obj[j])} - REL: {data_ref.get_rel_name(pred_obj_rel[j])} - VERB: {data_ref.get_verb_name(verb_pred)}")
-                            
-            for j in range(len(gt_obj)):
-                print(f"[GT] OBJ: {data_ref.get_obj_name(gt_obj[j])} - REL: {data_ref.get_rel_name(gt_obj_rel[j])} - VERB: {data_ref.get_verb_name(verb_gt)}")
+            print(f"[PRED] VERB: {get_verb_name(verb_pred)}")
+            print(f"[PRED] OBJ-VERB_REL: {pred_rel}\n")
+            print(f"[GT] VERB: {get_verb_name(verb_gt)}")
+            print(f"[GT] OBJ-VERB_REL: {gt_rel}")
             print("-"*30)
 
             
@@ -319,7 +341,7 @@ def main():
     path_data = Path(args.data_path)
     
     train_dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False)  #shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True) #, drop_last=False)  #shuffle=True)
 
     validation_dataset = EASGDatasetAE(path_annts, path_data, 'val', verbs, objs, rels)
     val_loader = DataLoader(validation_dataset, batch_size=args.val_batch_size, shuffle=False, drop_last=False)
@@ -358,8 +380,7 @@ def main():
         assert args.resume is not None, "eval mode but checkpoint has not been specified"
         model_weights = torch.load(args.resume)['model_state_dict']
         print("Load model weights:\n", model.load_state_dict(model_weights))
-        # TODO: using train_loader for now!
-        eval(dataloader=train_loader, model=model, device=device, opt=args)
+        eval(dataloader=val_loader, model=model, device=device, opt=args)
         sys.exit(0)
     
     if args.scheduler_type == 'cosine_annealing':
