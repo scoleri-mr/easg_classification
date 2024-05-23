@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv, GINConv, PNAConv, global_add_pool, global_mean_pool, global_max_pool
-from torch_geometric.nn import global_add_pool
+from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv, GINConv, global_add_pool
+from torch_geometric.nn import global_add_pool, global_mean_pool, global_max_pool
 from models import LinearProjection
 import torch_geometric as tg
 
@@ -148,10 +148,6 @@ class EASGDecoder(nn.Module):
         relationships = relationships.permute(0,2,1) #  [bs, 64, num_objs]
         relationships_cls = self.rel_head(relationships) #  [bs, num_rel, num_objs]
         relationships_cls = relationships_cls.permute(0,2,1) #  [bs, num_objs, num_rel]
-
-        ### ADDING THIS RESHAPE  ?????
-        relationships_cls = relationships_cls.reshape(bs * 391, 14)  # [bs*num_objs, num_rel]
-        #########
         
         return verb_cls, relationships_cls
     
