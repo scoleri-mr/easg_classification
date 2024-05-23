@@ -51,10 +51,8 @@ class LinearProjection(nn.Module):
         nodes_features = torch.cat([verb_feat, obj_feat], dim=1)  # [bs,max_nodes,projection_dim]
         nodes_features = nodes_features[mask]
         batch.x = nodes_features
-
         return batch
     
-
 class myGNN(nn.Module):
     ''' 
         apply two gnn layers ('gcn', 'sage' or 'gat') to the graph and get the edge features by
@@ -76,8 +74,12 @@ class myGNN(nn.Module):
             self.conv1 = GATv2Conv(input_dim, hidden_dim)
             self.conv2 = GATv2Conv(hidden_dim, output_dim)
         elif layer_type=='gin':
-            self.conv1 = GINConv(input_dim, hidden_dim)
-            self.conv2 = GINConv(hidden_dim, output_dim)
+            self.conv1 = GINConv(nn.Sequential(
+                nn.Linear(input_dim, hidden_dim)
+            ))
+            self.conv2 = GINConv(nn.Sequential(
+                nn.Linear(hidden_dim, output_dim)
+            ))
         else:
             raise Exception('Wrong graph layer type')
         self.dropout = nn.Dropout(dropout_prob)
@@ -87,4 +89,32 @@ class myGNN(nn.Module):
     def forward(self, batch):
         nodes_features = self.dropout(self.relu(self.conv1(batch.x, batch.edge_index)))
         nodes_features = self.dropout(self.relu(self.conv2(nodes_features, batch.edge_index)))
-        return nodes_features
+        batch.x = nodes_features
+        return batch
+    
+class EASGEncoder(nn.Module): 
+    def __init__(
+        self, object_feats_dim, verb_feats_dim, 
+        hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+        dropout_prob=0.2, graph_type='gat'
+        ):
+        super().__init__()
+        self.object_feats_dim = object_feats_dim
+        self.verb_feats_dim = verb_feats_dim
+        self.projection_dim = projection_dim
+        self.verb_obj_proj =  LinearProjection(
+            verb_dim=verb_feats_dim, obj_dim=object_feats_dim, 
+            hidden_projection_dim=hidden_projection_dim, projection_dim=projection_dim, 
+            dropout_prob=dropout_prob
+            )
+        self.graph_type = graph_type
+        self.gnn = myGNN(graph_type, projection_dim, hidden_dim, output_dim, dropout_prob)
+
+    def encode_graph(self, batch):
+        batch = self.verb_obj_proj(batch)
+        batch = self.gnn(batch)
+        graphs_latents = global_max_pool(batch.x, batch.batch)
+        return batch.x, graphs_latents
+    
+    def forward(self, batch):
+        return self.encode_graph(batch)
