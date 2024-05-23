@@ -195,7 +195,6 @@ class EASGDatasetAE(Dataset):
     def __len__(self):
         return len(self.graphs)
 
-
     def get_obj_name(self, cat_value):
         return self.objs[cat_value]
         
@@ -205,7 +204,6 @@ class EASGDatasetAE(Dataset):
     def get_rel_name(self, cat_value):
         return self.rels[cat_value]
 
-        
     def get_object_indices(self, idx):
         data_dict = self.graphs[idx]
         obj_indices = data_dict['obj_indices']
@@ -304,7 +302,6 @@ class EASGDatasetAE(Dataset):
             # el: (indice verbo,indice obj,indice rel)
             gt_rels[el[1],el[2]] = 1
             gt_rels[el[1],-1] = 0
-            
             
         # Create PyTorch Geometric Data object
         data = Data(x=x, edge_index=edge_index)
