@@ -2,7 +2,7 @@ import os
 import os.path as osp
 import sys
 import numpy as np
-from dataset import EASGDatasetAE
+from dataset_ae import EASGDatasetAE
 from pathlib import Path
 from torch_geometric.loader import DataLoader
 from argparse import ArgumentParser
@@ -168,10 +168,12 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             optimizer.zero_grad()
             out_verb, out_rel = model(batch)
             loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
-            out_rel = out_rel.contiguous().view(-1, 14)
-            
-            rel_gt = rel_gt.argmax(-1).view(-1)
-            loss_rel = F.cross_entropy(input=out_rel, target=rel_gt)
+            out_rel = out_rel.contiguous().view(-1, 14) 
+            rel_gt = rel_gt.view(-1, 14)
+            # rel_gt = rel_gt.argmax(-1).view(-1)
+            # loss_rel = F.cross_entropy(input=out_rel, target=rel_gt)
+            # TODO: moved from Cross-Entropy to BCE for multiple relation prediction at each object
+            loss_rel = F.binary_cross_entropy_with_logits(input=out_rel, target=rel_gt)
             loss = loss_verb + loss_rel
             loss.backward()
             optimizer.step()
@@ -198,22 +200,20 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 out_verb, out_rel = model(batch)
                 loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
                 out_rel = out_rel.contiguous().view(-1, 14)
-                rel_gt = rel_gt.argmax(-1).view(-1)
-                loss_rel = F.cross_entropy(input=out_rel, target=rel_gt)
-                loss = loss_verb + loss_rel
                 # store val batch results for computing global accuracy and balanced accuracy
                 list_logits_verb.append(out_verb.cpu().detach())
                 list_logits_rel.append(out_rel.cpu().detach())
                 list_gt_verb.append(verb_gt.cpu().detach())
-                list_gt_rel.append(rel_gt.cpu().detach())
+                list_gt_rel.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
             
             list_logits_verb = torch.cat(list_logits_verb, dim=0)
             list_pred_verb = torch.argmax(list_logits_verb, -1)
             list_logits_rel = torch.cat(list_logits_rel, dim=0)
-            list_pred_rel = torch.argmax(list_logits_rel, -1)
+            list_pred_rel = torch.argmax(list_logits_rel, -1)  # TODO: this does not address multiple verb-obj relationships!
             list_gt_verb = torch.cat(list_gt_verb, dim=0)
             list_gt_rel = torch.cat(list_gt_rel, dim=0)
             
+            # TODO: during training the accuracy of realtions is not 100% correct - we consider only one relation at maximum for each object!
             # compute accuracy
             acc_verb, balacc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
             acc_rel, balacc_rel = accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy())
@@ -248,6 +248,8 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
 def eval(dataloader, model, device, opt):
     model = model.to(device)
     model.eval()
+    count = -1
+    
     for bidx, _data in tqdm(enumerate(dataloader, 0), unit="batch", total=len(dataloader)):
         batch, batch_gt_verb, batch_gt_rel = _data
         bs = len(batch)
@@ -258,6 +260,7 @@ def eval(dataloader, model, device, opt):
         batch_gt_rel = batch_gt_rel.to(device)  # [bs, num_objs, num_rels+1]
         
         for i in range(bs):
+            count += 1        
             # verb pred/gt
             verb_pred = batch_pred_verb[i].argmax(-1).item()
             verb_gt = batch_gt_verb[i].item()
@@ -277,16 +280,20 @@ def eval(dataloader, model, device, opt):
             mask = gt_rel != 13
             # Find indices of elements not equal to X
             gt_obj = mask.nonzero(as_tuple=False)
-            gt_obj_rel = gt_rel[pred_obj]
+            gt_obj_rel = gt_rel[gt_obj]
+            
+            
+            # TODO: make better
+            data_ref = dataloader.dataset
+            assert isinstance(data_ref, EASGDatasetAE)
             
             print("-"*30)
-            print(f"Pred. Item [{i}]-th: ")
+            print(f"Item [{count}]-th: ")
             for j in range(len(pred_obj)):
-                print(f"OBJ: {pred_obj[j]} - REL: {pred_obj_rel[j]} - VERB: {verb_pred}")
-                
-            print(f"\nGT Item [{i}]-th: ")
+                print(f"[PRED] OBJ: {data_ref.get_obj_name(pred_obj[j])} - REL: {data_ref.get_rel_name(pred_obj_rel[j])} - VERB: {data_ref.get_verb_name(verb_pred)}")
+                            
             for j in range(len(gt_obj)):
-                print(f"OBJ: {gt_obj[j]} - REL: {gt_obj_rel[j]} - VERB: {verb_gt}")
+                print(f"[GT] OBJ: {data_ref.get_obj_name(gt_obj[j])} - REL: {data_ref.get_rel_name(gt_obj_rel[j])} - VERB: {data_ref.get_verb_name(verb_gt)}")
             print("-"*30)
 
             
@@ -312,7 +319,7 @@ def main():
     path_data = Path(args.data_path)
     
     train_dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False)  #shuffle=True)
 
     validation_dataset = EASGDatasetAE(path_annts, path_data, 'val', verbs, objs, rels)
     val_loader = DataLoader(validation_dataset, batch_size=args.val_batch_size, shuffle=False, drop_last=False)
