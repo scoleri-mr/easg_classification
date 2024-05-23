@@ -1,5 +1,6 @@
 import os
 import os.path as osp
+import sys
 import numpy as np
 from dataset import EASGDatasetAE
 from pathlib import Path
@@ -17,10 +18,11 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import time
 from sklearn.metrics import accuracy_score, balanced_accuracy_score
-from torchmetrics import Accuracy
 
 """"
 example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epochs200 --num_epochs 200
+- TODO: relazioni sono sbilanciate, ce n'è una (la non presenza dell'oggetto che è predominante) - valutare alternativa
+- TODO: autodecoder logic?
 """
 
 def parse_args():
@@ -58,6 +60,9 @@ def parse_args():
                         help='choose between graph layers: gcn, sage, gat, gin')
     parser.add_argument('--exp_name', type=str, default=None,
                         help='experiment name')
+    parser.add_argument('--resume', type=str, default=None,
+                        help='checkpoint to resume')
+    parser.add_argument('--eval', action='store_true')
     args = parser.parse_args()
     return args
 
@@ -155,6 +160,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
         model.train()
         for bidx, _data in tqdm(enumerate(train_loader, 0), unit="batch", total=len(train_loader)):
             batch, verb_gt, rel_gt = _data
+            bs = len(batch)
             batch = batch.to(device)
             verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
             # TODO: num_rels+1 is managed at the dataset level
@@ -163,6 +169,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             out_verb, out_rel = model(batch)
             loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
             out_rel = out_rel.contiguous().view(-1, 14)
+            
             rel_gt = rel_gt.argmax(-1).view(-1)
             loss_rel = F.cross_entropy(input=out_rel, target=rel_gt)
             loss = loss_verb + loss_rel
@@ -175,7 +182,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                     
         scheduler.step()
         
-        if epoch % 2 == 0:
+        if epoch % 10 == 0:
             ##############
             # EVALUATION #
             ##############
@@ -238,6 +245,53 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.wandb:
         wandb.finish()
 
+def eval(dataloader, model, device, opt):
+    model = model.to(device)
+    model.eval()
+    for bidx, _data in tqdm(enumerate(dataloader, 0), unit="batch", total=len(dataloader)):
+        batch, batch_gt_verb, batch_gt_rel = _data
+        bs = len(batch)
+        batch = batch.to(device)
+        batch_pred_verb, batch_pred_rel = model(batch)  # [bs, num_verbs], [bs, num_objects, num_rels+1]
+        # let's try to rebuild gt and predicted graph!
+        batch_gt_verb = batch_gt_verb.view(-1).to(device)  # [bs, ]
+        batch_gt_rel = batch_gt_rel.to(device)  # [bs, num_objs, num_rels+1]
+        
+        for i in range(bs):
+            # verb pred/gt
+            verb_pred = batch_pred_verb[i].argmax(-1).item()
+            verb_gt = batch_gt_verb[i].item()
+            
+            # obj-rel pred
+            pred_rel_logits = batch_pred_rel[i]  # [num_obj, num_rel + 1]
+            pred_rel = pred_rel_logits.argmax(-1)
+            # Create a mask for elements not equal to non-object label
+            mask = pred_rel != 13
+            # Find indices of elements not equal to X
+            pred_obj = mask.nonzero(as_tuple=False)
+            pred_obj_rel = pred_rel[pred_obj]
+            
+            # obj-rel gt
+            gt_rel = batch_gt_rel[i].argmax(-1)
+            # Create a mask for elements not equal to non-object label
+            mask = gt_rel != 13
+            # Find indices of elements not equal to X
+            gt_obj = mask.nonzero(as_tuple=False)
+            gt_obj_rel = gt_rel[pred_obj]
+            
+            print("-"*30)
+            print(f"Pred. Item [{i}]-th: ")
+            for j in range(len(pred_obj)):
+                print(f"OBJ: {pred_obj[j]} - REL: {pred_obj_rel[j]} - VERB: {verb_pred}")
+                
+            print(f"\nGT Item [{i}]-th: ")
+            for j in range(len(gt_obj)):
+                print(f"OBJ: {gt_obj[j]} - REL: {gt_obj_rel[j]} - VERB: {verb_gt}")
+            print("-"*30)
+
+            
+            
+            
 
 def main():
     # GET TRAINING DATASET
@@ -292,6 +346,15 @@ def main():
                              args.graph_type
                              )
     optimizer = Adam(model.parameters(), lr=args.lr_start)
+    
+    if args.eval:
+        assert args.resume is not None, "eval mode but checkpoint has not been specified"
+        model_weights = torch.load(args.resume)['model_state_dict']
+        print("Load model weights:\n", model.load_state_dict(model_weights))
+        # TODO: using train_loader for now!
+        eval(dataloader=train_loader, model=model, device=device, opt=args)
+        sys.exit(0)
+    
     if args.scheduler_type == 'cosine_annealing':
         scheduler = lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=cosine_annealing_param)
