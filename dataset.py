@@ -294,3 +294,27 @@ class EASGDatasetAE(Dataset):
         
         # TODO: don't need to encapsulate the GTs in pytorch geometric structure, these have the same size for each elem. in batch!
         return data, verb_idx, gt_rels
+    
+if __name__ == "__main__":
+    print('debugging')
+    import os.path as osp
+
+    ann_path = "/home/antonioa/projects/scenegraphs/easg_classification/annts_in_new_format/"
+    data_path = "/home/antonioa/projects/scenegraphs/easg_classification/data/"
+
+    with open(osp.join(ann_path, 'verbs.txt')) as f:
+        verbs = [l.strip() for l in f.readlines()]
+    num_verbs = len(verbs)
+
+    with open(osp.join(ann_path, 'objects.txt')) as f:
+        objs = [l.strip() for l in f.readlines()]
+    num_objs = len(objs)
+
+    with open(osp.join(ann_path, 'relationships.txt')) as f:
+        rels = [l.strip() for l in f.readlines()]
+    num_rels = len(rels)
+
+    path_annts = Path(ann_path)
+    path_data = Path(data_path)
+
+    dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
