@@ -107,6 +107,9 @@ class EASGDatasetAE(Dataset):
         self.num_objs = len(objs)
         self.num_verbs = len(verbs)
         self.num_rels = len(rels)
+        self.verbs = verbs
+        self.objs = objs
+        self.rels = rels
         print(f"{self.whoami} - {split} - num_objs: {self.num_objs}, num_verbs: {self.num_verbs}, num_rels: {self.num_rels} ")
         with open(path_annts / f'easg_{split}.pkl', 'rb') as f:
             annts = pickle.load(f)
@@ -192,6 +195,17 @@ class EASGDatasetAE(Dataset):
     def __len__(self):
         return len(self.graphs)
 
+
+    def get_obj_name(self, cat_value):
+        return self.objs[cat_value]
+        
+    def get_verb_name(self, cat_value):
+        return self.verbs[cat_value]
+
+    def get_rel_name(self, cat_value):
+        return self.rels[cat_value]
+
+        
     def get_object_indices(self, idx):
         data_dict = self.graphs[idx]
         obj_indices = data_dict['obj_indices']
@@ -226,7 +240,8 @@ class EASGDatasetAE(Dataset):
             (verb+objects) of the graph. If we have two nodes linked by two or more relationships
             the edge index will have repeating columns.
         '''
-        edge_index_temp = triplets[:, :2].t().contiguous()
+        # TODO: be careful, we don't want to modify triplests (ie. cloning tensor)
+        edge_index_temp = triplets.clone()[:, :2].t().contiguous()
         # Objects go from 0 to 390, verbs go from 0 to 197. It could happen that verb 5 is connected
         # to object 5 and I would have an edge index that goes from 5 to 5 when actually the nodes are 
         # different. To avoid this situation I add to the second row of the edge index the number of verbs
@@ -249,13 +264,13 @@ class EASGDatasetAE(Dataset):
     def __getitem__(self, idx):
         # Extract data from the dictionary
         # TODO: why these deepcopies???? previous logic was messing up - now it shouldn't be needed
-        item = copy.deepcopy(self.graphs[idx])
+        item = self.graphs[idx]
         clip_features = item['clip_feat']
         obj_feats = item['obj_feats']
-        triplets = copy.deepcopy(item['triplets'])
         rels = item['rels_vecs']
         verb_idx = item['verb_idx']
         obj_indices = item['obj_indices']
+        triplets = item['triplets']
 
         # Concatenate clip and object features, pad the object features to match clip features
         clip_features = clip_features.unsqueeze(0)
@@ -267,6 +282,7 @@ class EASGDatasetAE(Dataset):
 
         # TODO: using additional relationship "idx:num_rels" to model the non-presence of object
         # Create target tensors for object-verb relationships
+        """
         gt_rels = torch.zeros((self.num_objs, self.num_rels+1)).long()
         for obj_idx in range(self.num_objs):
             positions = (obj_indices == obj_idx).nonzero(as_tuple=True)[0]
@@ -280,7 +296,16 @@ class EASGDatasetAE(Dataset):
                 gt_rels[obj_idx, -1] = 1
             else:
                 assert False, "sth wrong happened!"
-
+        """
+        # Create target tensors
+        gt_rels = torch.zeros((self.num_objs,self.num_rels+1))
+        gt_rels[:,-1]=1
+        for el in triplets:
+            # el: (indice verbo,indice obj,indice rel)
+            gt_rels[el[1],el[2]] = 1
+            gt_rels[el[1],-1] = 0
+            
+            
         # Create PyTorch Geometric Data object
         data = Data(x=x, edge_index=edge_index)
         
@@ -310,8 +335,7 @@ if __name__ == "__main__":
     path_annts = Path(ann_path)
     path_data = Path(data_path)
 
-    train_original = EASGData(path_annts, path_data, 'train', verbs, objs, rels)
-    dataset = myEASGDataset(train_original)
+    dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
     print(len(dataset))
-    item = dataset[0]
+    item = dataset[613]
     print()
