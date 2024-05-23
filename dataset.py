@@ -107,6 +107,10 @@ class EASGDatasetAE(Dataset):
         self.num_objs = len(objs)
         self.num_verbs = len(verbs)
         self.num_rels = len(rels)
+        self.verbs = verbs
+        self.objs = objs
+        self.rels = rels
+        
         print(f"{self.whoami} - {split} - num_objs: {self.num_objs}, num_verbs: {self.num_verbs}, num_rels: {self.num_rels} ")
         with open(path_annts / f'easg_{split}.pkl', 'rb') as f:
             annts = pickle.load(f)
@@ -191,6 +195,18 @@ class EASGDatasetAE(Dataset):
 
     def __len__(self):
         return len(self.graphs)
+    
+    def get_verb_name(self, idx):
+        verb_idx = self.get_verb_index(idx)
+        return self.verbs[idx]
+    
+    def get_objs_name(self, idx):
+        obj_indices = self.get_object_indices(idx)
+        return self.objs[obj_indices]
+    
+    def get_rels_name(self, idx):
+        rels_vecs = self.get_rels(idx)
+        return [self.rels[el.argmax()] for el in rels_vecs]
 
     def get_object_indices(self, idx):
         data_dict = self.graphs[idx]
