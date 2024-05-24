@@ -341,7 +341,7 @@ def main():
     path_data = Path(args.data_path)
     
     train_dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True) #, drop_last=False)  #shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 
     validation_dataset = EASGDatasetAE(path_annts, path_data, 'val', verbs, objs, rels)
     val_loader = DataLoader(validation_dataset, batch_size=args.val_batch_size, shuffle=False, drop_last=False)
