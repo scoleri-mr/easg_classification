@@ -118,3 +118,80 @@ class EASGEncoder(nn.Module):
     
     def forward(self, batch):
         return self.encode_graph(batch)
+    
+class EASGDecoder(nn.Module): 
+    def __init__(
+        self, num_rels, num_verbs, num_objs, input_dim, hidden_dim, 
+        dropout_prob=0.2
+        ):
+        super().__init__()
+        self.shared_mlp = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim*2),
+            nn.LayerNorm(hidden_dim*2),
+            nn.GELU(),
+            nn.Dropout(dropout_prob),
+            nn.Linear(hidden_dim*2, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+        )
+        
+        # verb cls starting from latent graph
+        self.verb_head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, num_verbs),
+        )
+        
+        # rels cls starting from latent graph
+        self.rel_mlp = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, num_objs*64),
+        )
+        self.rel_head = nn.Conv1d(in_channels=64, out_channels=num_rels, kernel_size=1)
+        
+        
+    def forward(self, codes):
+        """ decoder takes a latent code for each graph """
+        bs = codes.size(0)
+        
+        # upsample features - common for verb and obj-verb relationships
+        shared_repr = self.shared_mlp(codes)
+        
+        # verb classification
+        verb_logits = self.verb_head(shared_repr)  # [bs, num_verbs]
+        
+        # obj-verb rel classification
+        relationships = self.rel_mlp(shared_repr)  # [bs, num_objs*64]
+        relationships = relationships.view(bs, -1, 64) #  [bs, num_objs, 64]
+        relationships = relationships.permute(0,2,1) #  [bs, 64, num_objs]
+        relationships_logits = self.rel_head(relationships) #  [bs, num_rel, num_objs]
+        relationships_logits = relationships_logits.permute(0,2,1) #  [bs, num_objs, num_rel]
+
+        return verb_logits, relationships_logits
+
+class EASGAutoEncoder(nn.Module): 
+    def __init__(   self, object_feats_dim, verb_feats_dim, 
+                    num_rels, num_verbs, num_objs, 
+                    hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+                    dropout_prob=0.2, graph_type='gat'  ):
+        super().__init__()
+        
+        self.encoder = EASGEncoder(
+            object_feats_dim, verb_feats_dim, 
+            hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+            dropout_prob, graph_type
+        )
+        self.decoder = EASGDecoder(
+            num_rels, num_verbs, num_objs, output_dim, output_dim*2, dropout_prob
+        )
+        
+    def forward(self, batch):
+        # encode 
+        _, graphs_latents = self.encoder.encode_graph(batch)
+        
+        # decode
+        verb_logits, obj_verb_rel_logits = self.decoder(graphs_latents)
+        return verb_logits, obj_verb_rel_logits
