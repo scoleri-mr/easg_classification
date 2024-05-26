@@ -5,6 +5,7 @@ trained_models/
 data/
 my_output/
 out_path/
+experiments/
 no_gnn_eval.py
 no_gnn_train.py
 no_gnn_prova.pth
