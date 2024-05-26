@@ -24,6 +24,28 @@ example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epoc
 - TODO: relazioni sono sbilanciate, ce n'è una (la non presenza dell'oggetto che è predominante) - valutare alternativa
 - TODO: autodecoder logic?
 """
+def plot_losses(loss_verb, loss_rels):
+    import matplotlib.pyplot as plt
+    # Create a figure and axis objects for subplots
+    fig, axs = plt.subplots(2, 1, figsize=(8, 12))
+
+    # Plot the first loss list
+    axs[0].plot(loss_verb, label='Loss verb', color='blue')
+    axs[0].set_title('Loss verb')
+    axs[0].set_xlabel('Epoch')
+    axs[0].set_ylabel('Loss')
+    axs[0].legend()
+
+    # Plot the second loss list
+    axs[1].plot(loss_rels, label='Relationship loss', color='green')
+    axs[1].set_title('Relationship loss')
+    axs[1].set_xlabel('Epoch')
+    axs[1].set_ylabel('Loss')
+    axs[1].legend()
+
+    plt.tight_layout()
+    plt.savefig('losses_ae.png')
+    plt.show()
 
 def parse_args():
     parser = ArgumentParser()
@@ -148,6 +170,8 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
         opt.exp_name = f"AE_{str(int(time.time()))}"
         
+    history_verb = []
+    history_rels = []
     model = model.to(device)
     if opt.wandb:
         wandb.init(project=f'easg_ae_{opt.graph_type}', config=opt, name=opt.exp_name)
@@ -172,6 +196,8 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             # loss_rel = F.cross_entropy(input=out_rel, target=rel_gt)
             # TODO: moved from Cross-Entropy to BCE for multiple relation prediction at each object
             loss_rel = F.binary_cross_entropy_with_logits(input=out_rel, target=rel_gt)
+            history_verb.append(loss_verb.item())
+            history_rels.append(loss_rel.item())
             loss = loss_verb + loss_rel
             loss.backward()
             optimizer.step()
@@ -239,6 +265,8 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             save_dir = f"./experiments/{opt.exp_name}/checkpoints"
             os.makedirs(save_dir, exist_ok=True)
             save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
+
+    plot_losses(history_verb, history_rels)
 
     if opt.wandb:
         wandb.finish()

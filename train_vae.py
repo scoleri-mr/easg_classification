@@ -127,6 +127,36 @@ def save_checkpoint(model, optimizer, epoch, path):
     torch.save(checkpoint, path)
     print(f'Checkpoint saved to {path}')
 
+def plot_losses(loss_verb, loss_rels, kld):
+    import matplotlib.pyplot as plt
+    # Create a figure and axis objects for subplots
+    fig, axs = plt.subplots(3, 1, figsize=(8, 12))
+
+    # Plot the first loss list
+    axs[0].plot(loss_verb, label='Loss verb', color='blue')
+    axs[0].set_title('Loss verb')
+    axs[0].set_xlabel('Epoch')
+    axs[0].set_ylabel('Loss')
+    axs[0].legend()
+
+    # Plot the second loss list
+    axs[1].plot(loss_rels, label='Relationship loss', color='green')
+    axs[1].set_title('Relationship loss')
+    axs[1].set_xlabel('Epoch')
+    axs[1].set_ylabel('Loss')
+    axs[1].legend()
+
+    # Plot the third loss list
+    axs[2].plot(kld, label='kld', color='red')
+    axs[2].set_title('kld')
+    axs[2].set_xlabel('Epoch')
+    axs[2].set_ylabel('Loss')
+    axs[2].legend()
+
+    plt.tight_layout()
+    plt.savefig('losses_vae.png')
+    plt.show()
+
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
@@ -138,11 +168,13 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
         wandb.watch(model, log="all")        
         
     print(f"Training - exp name: {opt.exp_name}")
+    history_verb = []
+    history_rels = []
+    history_kld = []
     for epoch in range(opt.num_epochs):
         model.train()
         for bidx, _data in tqdm(enumerate(train_loader, 0), unit="batch", total=len(train_loader)):
             batch, verb_gt, rel_gt = _data
-            bs = len(batch)
             batch = batch.to(device)
             verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
             rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
@@ -150,6 +182,9 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             verb_logits, relationship_logits, mu, logvar = model(batch)
             loss_verb, loss_rel, kld = model.loss_functions(verb_gt, rel_gt, verb_logits, relationship_logits, mu, logvar)
             loss = loss_verb + loss_rel + opt.beta*kld
+            history_verb.append(loss_verb.item())
+            history_rels.append(loss_rel.item())
+            history_kld.append(kld.item())
             loss.backward()
             optimizer.step()
             if bidx % 10 == 0:
@@ -170,7 +205,6 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 batch, verb_gt, rel_gt = _data
                 batch = batch.to(device)
                 verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
-                # TODO: num_rels+1 is managed at the dataset level
                 rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
                 out_verb, out_rel, mu, logvar = model(batch)
                 loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
@@ -209,13 +243,15 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             if opt.wandb: 
                 wandb.log({"val/verb_acc": acc_verb, "val/verb_balAcc": balacc_verb, "val/rel_acc": acc_rel, "val/rel_balAcc": balacc_rel, "val/epoch": epoch})
             
-            
             ##############
             # CHECKPOINT #
             ##############
             save_dir = f"./experiments/{opt.exp_name}/checkpoints"
             os.makedirs(save_dir, exist_ok=True)
             save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
+
+    # save losses plot
+    plot_losses(history_verb, history_rels, history_kld)
 
     if opt.wandb:
         wandb.finish()
