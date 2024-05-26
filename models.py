@@ -3,53 +3,30 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric as tg
 from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv, GINConv
-from torch_geometric.nn import global_max_pool, global_mean_pool
-
-
-def gather_by_idxs(source, idx):
-    """
-    :param source: input points data, [B, N, C]
-    :param idx: sample index data, [B, S]
-    :return: indexed points data, [B, S, C]
-    """
-    B = source.shape[0]
-    view_shape = list(idx.shape)
-    view_shape[1:] = [1] * (len(view_shape) - 1)
-    repeat_shape = list(idx.shape)
-    repeat_shape[0] = 1
-    batch_indices = torch.arange(B, dtype=torch.long).to(
-        source.device).view(view_shape).repeat(repeat_shape)
-    new_points = source[batch_indices, idx, :]
-    return new_points
+from torch_geometric.nn import global_max_pool
 
 
 class LinearProjection(nn.Module):
-    def __init__(self, verb_dim, obj_dim, hidden_projection_dim, projection_dim, dropout_prob):
-        '''
-            Originally, object features were 1024 and verb features were 2304.
-            Both verbs and objects need to be considered nodes so objects are padded in the dataset.
-            We don't want to send padded nodes to the gnn so we handle this here:
-            we perform a linear projection of objects and verbs removing the padding.
-        '''
+    def __init__(self, verb_dim, obj_dim, hid_projection_dim, projection_dim, dropout_prob):
         super().__init__()
         self.projection_dim = projection_dim
         self.obj_dim = obj_dim
         self.verb_dim = verb_dim
 
         self.mlp_object = nn.Sequential(
-            nn.Linear(obj_dim, hidden_projection_dim),
-            nn.LayerNorm(hidden_projection_dim),
+            nn.Linear(obj_dim, hid_projection_dim),
+            nn.LayerNorm(hid_projection_dim),
             nn.GELU(),
             nn.Dropout(dropout_prob),
-            nn.Linear(hidden_projection_dim, projection_dim),
+            nn.Linear(hid_projection_dim, projection_dim)
         )
 
         self.mlp_verb = nn.Sequential(
-            nn.Linear(verb_dim, hidden_projection_dim),
-            nn.LayerNorm(hidden_projection_dim),
+            nn.Linear(verb_dim, hid_projection_dim),
+            nn.LayerNorm(hid_projection_dim),
             nn.GELU(),
             nn.Dropout(dropout_prob),
-            nn.Linear(hidden_projection_dim, projection_dim),
+            nn.Linear(hid_projection_dim, projection_dim)
         )
 
     def forward(self, verb_feat, obj_feat):
@@ -63,12 +40,6 @@ class LinearProjection(nn.Module):
 
 
 class myGNN(nn.Module):
-    ''' 
-        apply two gnn layers ('gcn', 'sage' or 'gat') to the graph and get the edge features by
-        simply returning the elementwise max or mean between the two nodes that 
-        form the edge    
-    '''
-
     def __init__(self, layer_type, input_dim, hidden_dim, output_dim, dropout_prob, edge_creation):
         super().__init__()
         self.output_dim = output_dim
@@ -137,8 +108,9 @@ class myClassifier(nn.Module):
 
 class EASGClassifier(nn.Module):
     def __init__(
-        self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim,
-        dropout_prob=0.2, edge_creation='mean', graph_type='gat'
+            self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim,
+            projection_dim, hidden_dim, output_dim,
+            dropout_prob=0.2, edge_creation='mean', graph_type='gat'
     ):
         super().__init__()
         self.object_feats_dim = object_feats_dim
@@ -146,7 +118,7 @@ class EASGClassifier(nn.Module):
         self.projection_dim = projection_dim
         self.verb_obj_proj = LinearProjection(
             verb_dim=verb_feats_dim, obj_dim=object_feats_dim,
-            hidden_projection_dim=hidden_projection_dim, projection_dim=projection_dim,
+            hid_projection_dim=hidden_projection_dim, projection_dim=projection_dim,
             dropout_prob=dropout_prob
         )
         self.graph_type = graph_type
@@ -155,18 +127,19 @@ class EASGClassifier(nn.Module):
         self.cls = myClassifier(output_dim, num_rels, num_verbs, num_objs)
 
     def forward(self, batch):
-        """ classification forward """
-        nodes_features, edge_features, graphs_latents = self.encode_graph(
-            batch)
-        logits_edges, logits_verb, logits_objs = self.cls(
-            nodes_features, edge_features)
+        nodes_features, edge_features, graphs_latents = self.encode_graph(batch)
+        logits_edges, logits_verb, logits_objs = self.cls(nodes_features, edge_features)
         return logits_edges, logits_verb, logits_objs
 
 
 class EASGEncoder(nn.Module):
     def __init__(
-        self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim,
-        dropout_prob=0.2, edge_creation='mean', graph_type='gat'
+            self,
+            object_feats_dim, verb_feats_dim,
+            num_rels, num_verbs, num_objs,
+            hidden_projection_dim, projection_dim, hidden_dim,
+            output_dim,
+            dropout_prob=0.2, edge_creation='mean', graph_type='gat'
     ):
         super().__init__()
         self.object_feats_dim = object_feats_dim
@@ -174,12 +147,11 @@ class EASGEncoder(nn.Module):
         self.projection_dim = projection_dim
         self.verb_obj_proj = LinearProjection(
             verb_dim=verb_feats_dim, obj_dim=object_feats_dim,
-            hidden_projection_dim=hidden_projection_dim, projection_dim=projection_dim,
+            hid_projection_dim=hidden_projection_dim, projection_dim=projection_dim,
             dropout_prob=dropout_prob
         )
         self.graph_type = graph_type
-        self.gnn = myGNN(graph_type, projection_dim, hidden_dim,
-                         output_dim, dropout_prob, edge_creation)
+        self.gnn = myGNN(graph_type, projection_dim, hidden_dim, output_dim, dropout_prob, edge_creation)
         self.cls = myClassifier(output_dim, num_rels, num_verbs, num_objs)
 
     def forward(self, batch):
@@ -216,15 +188,15 @@ class EASGEncoder(nn.Module):
 
 class EASGDecoder(nn.Module):
     def __init__(
-        self, num_rels, num_verbs, num_objs, input_dim, hidden_dim, dropout_prob=0.2
+            self, num_rels, num_verbs, num_objs, input_dim, hidden_dim, dropout_prob=0.2
     ):
         super().__init__()
         self.shared_mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim*2),
-            nn.LayerNorm(hidden_dim*2),
+            nn.Linear(input_dim, hidden_dim * 2),
+            nn.LayerNorm(hidden_dim * 2),
             nn.GELU(),
             nn.Dropout(dropout_prob),
-            nn.Linear(hidden_dim*2, hidden_dim),
+            nn.Linear(hidden_dim * 2, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.GELU(),
         )
@@ -242,7 +214,7 @@ class EASGDecoder(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.GELU(),
-            nn.Linear(hidden_dim, num_objs*64),
+            nn.Linear(hidden_dim, num_objs * 64),
         )
 
         self.rel_head = nn.Conv1d(
@@ -276,17 +248,19 @@ class EASGDecoder(nn.Module):
 
 class EASG_AE(nn.Module):
     def __init__(
-        self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim,
-        dropout_prob=0.2, edge_creation='mean', graph_type='gat'
+            self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim,
+            projection_dim, hidden_dim, output_dim,
+            dropout_prob=0.2, edge_creation='mean', graph_type='gat'
     ):
         super().__init__()
 
         self.encoder = EASGEncoder(
-            object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim,
+            object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim,
+            hidden_dim, output_dim,
             dropout_prob, edge_creation, graph_type
         )
         self.decoder = EASGDecoder(
-            num_rels, num_verbs, num_objs, output_dim, output_dim*2, dropout_prob
+            num_rels, num_verbs, num_objs, output_dim, output_dim * 2, dropout_prob
         )
 
     def forward(self, batch):
@@ -300,25 +274,27 @@ class EASG_AE(nn.Module):
 
 class EASG_VAE(nn.Module):
     def __init__(
-        self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim,
-        dropout_prob=0.2, edge_creation='mean', graph_type='gat'
+            self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim,
+            projection_dim, hidden_dim, output_dim,
+            dropout_prob=0.2, edge_creation='mean', graph_type='gat'
     ):
         super().__init__()
 
         self.encoder = EASGEncoder(
-            object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim,
+            object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim,
+            hidden_dim, output_dim,
             dropout_prob, edge_creation, graph_type
         )
-        
+
         self.fc_mu = nn.Linear(output_dim, output_dim)
         self.fc_logvar = nn.Linear(output_dim, output_dim)
-        
+
         self.decoder = EASGDecoder(
-            num_rels, num_verbs, num_objs, output_dim, output_dim*2, dropout_prob
+            num_rels, num_verbs, num_objs, output_dim, output_dim * 2, dropout_prob
         )
 
     def encode(self, data):
-        _,_,x_g = self.encoder(data)
+        _, _, x_g = self.encoder(data)
         mu = self.fc_mu(x_g)
         logvar = self.fc_logvar(x_g)
         x_g = self.reparameterize(mu, logvar)
@@ -338,29 +314,16 @@ class EASG_VAE(nn.Module):
 
     def decode_mu(self, mu):
         return self.decoder(mu)
-    
-    # def forward(self, data):
-    #     _,_,x_g = self.encoder(data)
-    #     mu = self.fc_mu(x_g)
-    #     logvar = self.fc_logvar(x_g)
-    #     x_g = self.reparameterize(mu, logvar)
-    #     return self.decoder(x_g)  # verb_logits, obj_verb_rel_logits
 
-    def forward(self, data): #, beta=0.05):
+    def forward(self, data):
         x_g = self.encoder(data)[-1]
         mu = self.fc_mu(x_g)
         logvar = self.fc_logvar(x_g)
         x_g = self.reparameterize(mu, logvar)
         verb_logits, obj_verb_rel_logits = self.decoder(x_g)
-        
-        # original was:
-        #kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        
-        # source: 
-        # https://github.com/AntixK/PyTorch-VAE/blob/a6896b944c918dd7030e7d795a8c13e5c6345ec7/models/vanilla_vae.py#L143
-        kld =  torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim = 1), dim = 0)
+        # source: https://github.com/AntixK/PyTorch-VAE/blob/a6896b944c918dd7030e7d795a8c13e5c6345ec7/models/vanilla_vae.py#L143
+        kld = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim=1), dim=0)
         return verb_logits, obj_verb_rel_logits, kld
-
 
 
 if __name__ == "__main__":

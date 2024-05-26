@@ -19,3 +19,10 @@ only_verb_train.py
 only_verb_models.py
 prova.ipynb
 autoencoder_original.py
+.idea/deployment.xml
+.idea/easg_classification.iml
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/inspectionProfiles/Project_Default.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/vcs.xml

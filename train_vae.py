@@ -18,12 +18,14 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import time
 from sklearn.metrics import accuracy_score, balanced_accuracy_score
+from utils import *
 
 """"
 example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epochs200 --num_epochs 200
 - TODO: relazioni sono sbilanciate, ce n'è una (la non presenza dell'oggetto che è predominante) - valutare alternativa
 - TODO: autodecoder logic?
 """
+
 
 def parse_args():
     parser = ArgumentParser()
@@ -69,94 +71,15 @@ def parse_args():
     return args
 
 
-def topk_accuracy(output: torch.Tensor, target: torch.Tensor, topk=(1,)):
-    """
-    Computes the accuracy over the k top predictions for the specified values of k
-    In top-5 accuracy you give yourself credit for having the right answer
-    if the right answer appears in your top five guesses.
-
-    ref:
-    - https://pytorch.org/docs/stable/generated/torch.topk.html
-    - https://discuss.pytorch.org/t/imagenet-example-accuracy-calculation/7840
-    - https://gist.github.com/weiaicunzai/2a5ae6eac6712c70bde0630f3e76b77b
-    - https://discuss.pytorch.org/t/top-k-error-calculation/48815/2
-    - https://stackoverflow.com/questions/59474987/how-to-get-top-k-accuracy-in-semantic-segmentation-using-pytorch
-
-    :param output: output is the prediction of the model e.g. scores, logits, raw y_pred before normalization or getting classes
-    :param target: target is the truth
-    :param topk: tuple of topk's to compute e.g. (1, 2, 5) computes top 1, top 2 and top 5.
-    e.g. in top 2 it means you get a +1 if your models's top 2 predictions are in the right label.
-    So if your model predicts cat, dog (0, 1) and the true label was bird (3) you get zero
-    but if it were either cat or dog you'd accumulate +1 for that example.
-    :return: list of topk accuracy [top1st, top2nd, ...] depending on your topk input
-    """
-    with torch.no_grad():
-        # ---- get the topk most likely labels according to your model
-        # get the largest k \in [n_classes] (i.e. the number of most likely probabilities we will use)
-        maxk = max(topk)  # max number labels we will consider in the right choices for out model
-        batch_size = target.size(0)
-
-        # get top maxk indicies that correspond to the most likely probability scores
-        # (note _ means we don't care about the actual top maxk scores just their corresponding indicies/labels)
-        _, y_pred = output.topk(k=maxk, dim=1)  # _, [B, n_classes] -> [B, maxk]
-        y_pred = y_pred.t()  # [B, maxk] -> [maxk, B] Expects input to be <= 2-D tensor and transposes dimensions 0 and 1.
-
-        # - get the credit for each example if the models predictions is in maxk values (main crux of code)
-        # for any example, the model will get credit if it's prediction matches the ground truth
-        # for each example we compare if the model's best prediction matches the truth. If yes we get an entry of 1.
-        # if the k'th top answer of the model matches the truth we get 1.
-        # Note: this for any example in batch we can only ever get 1 match (so we never overestimate accuracy <1)
-        target_reshaped = target.view(1, -1).expand_as(y_pred)  # [B] -> [B, 1] -> [maxk, B]
-        # compare every topk's model prediction with the ground truth & give credit if any matches the ground truth
-        correct = (y_pred == target_reshaped)  # [maxk, B] were for each example we know which topk prediction matched truth
-        # original: correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-        # -- get topk accuracy
-        list_topk_accs = []  # idx is topk1, topk2, ... etc
-        for k in topk:
-            # get tensor of which topk answer was right
-            ind_which_topk_matched_truth = correct[:k]  # [maxk, B] -> [k, B]
-            # flatten it to help compute if we got it correct for each example in batch
-            flattened_indicator_which_topk_matched_truth = ind_which_topk_matched_truth.reshape(-1).float()  # [k, B] -> [kB]
-            # get if we got it right for any of our top k prediction for each example in batch
-            tot_correct_topk = flattened_indicator_which_topk_matched_truth.float().sum(dim=0, keepdim=True)  # [kB] -> [1]
-            # compute topk accuracy - the accuracy of the mode's ability to get it right within it's top k guesses/preds
-            topk_acc = tot_correct_topk / batch_size  # topk accuracy for entire batch
-            list_topk_accs.append(topk_acc)
-        return list_topk_accs  # list of topk accuracies for entire batch [topk1, topk2, ... etc]
-
-
-def save_checkpoint(model, optimizer, epoch, path):
-    """
-    Saves a checkpoint of the model and optimizer states, along with training metadata.
-
-    Args:
-    model (torch.nn.Module): The model whose parameters you want to save.
-    optimizer (torch.optim.Optimizer): The optimizer with current state.
-    epoch (int): Current epoch number.
-    path (str): Path to save the checkpoint file.
-
-    Returns:
-    None
-    """
-    checkpoint = {
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-    }
-    torch.save(checkpoint, path)
-    print(f'Checkpoint saved to {path}')
-
-
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
         opt.exp_name = f"VAE_{str(int(time.time()))}"
-        
+
     model = model.to(device)
     if opt.wandb:
         wandb.init(project=f'easg_ae_{opt.graph_type}', config=opt, name=opt.exp_name)
-        wandb.watch(model, log="all")        
-        
+        wandb.watch(model, log="all")
+
     print(f"Training - exp name: {opt.exp_name}")
     for epoch in range(opt.num_epochs):
         model.train()
@@ -169,23 +92,25 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
             optimizer.zero_grad()
             out_verb, out_rel, kld = model(batch)
-            
+
             # compute loss
             loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
-            out_rel = out_rel.contiguous().view(-1, 14) 
+            out_rel = out_rel.contiguous().view(-1, 14)
             rel_gt = rel_gt.view(-1, 14)
             loss_rel = F.binary_cross_entropy_with_logits(input=out_rel, target=rel_gt)
             loss = loss_verb + loss_rel + (opt.kld_weight * kld)
-            
+
             loss.backward()
             optimizer.step()
             if bidx % 10 == 0:
                 current_lr = scheduler.get_last_lr()[0]
-                print(f"Train epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}, kld: {kld.item():.4f}")
-                if opt.wandb: wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "kld": kld, "current_lr": current_lr})
-                    
+                print(
+                    f"Train epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}, kld: {kld.item():.4f}")
+                if opt.wandb: wandb.log(
+                    {"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "kld": kld, "current_lr": current_lr})
+
         scheduler.step()
-        
+
         if epoch % 10 == 0:
             ##############
             # EVALUATION #
@@ -206,37 +131,43 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 list_logits_verb.append(out_verb.cpu().detach())
                 list_logits_rel.append(out_rel.cpu().detach())
                 list_gt_verb.append(verb_gt.cpu().detach())
-                list_gt_rel.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
-            
+                list_gt_rel.append(rel_gt.view(-1, 14).argmax(-1).view(-1).cpu().detach())
+
             list_logits_verb = torch.cat(list_logits_verb, dim=0)
             list_pred_verb = torch.argmax(list_logits_verb, -1)
             list_logits_rel = torch.cat(list_logits_rel, dim=0)
-            list_pred_rel = torch.argmax(list_logits_rel, -1)  # TODO: this does not address multiple verb-obj relationships!
+            list_pred_rel = torch.argmax(list_logits_rel,
+                                         -1)  # TODO: this does not address multiple verb-obj relationships!
             list_gt_verb = torch.cat(list_gt_verb, dim=0)
             list_gt_rel = torch.cat(list_gt_rel, dim=0)
-            
+
             # TODO: during training the accuracy of realtions is not 100% correct - we consider only one relation at maximum for each object!
-            # compute accuracy
-            acc_verb, balacc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
-            acc_rel, balacc_rel = accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy())
-            print(f"Validation epoch {epoch}, acc_verb: {acc_verb:.4f}, balAcc_verb: {balacc_verb:.4f}, acc_rel: {acc_rel:.4f}, balAcc_rel: {balacc_rel:.4f}")
-            
+            #  compute accuracy
+            acc_verb, balacc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(),
+                                                   y_pred=list_pred_verb.cpu().numpy()), balanced_accuracy_score(
+                y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
+            acc_rel, balacc_rel = accuracy_score(y_true=list_gt_rel.cpu().numpy(),
+                                                 y_pred=list_pred_rel.cpu().numpy()), balanced_accuracy_score(
+                y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy())
+            print(
+                f"Validation epoch {epoch}, acc_verb: {acc_verb:.4f}, balAcc_verb: {balacc_verb:.4f}, acc_rel: {acc_rel:.4f}, balAcc_rel: {balacc_rel:.4f}")
+
             # top-k acc
-            ks = [1,2,5,10]
+            ks = [1, 2, 5, 10]
             verb_acc = topk_accuracy(output=list_logits_verb, target=list_gt_verb, topk=ks)
             rel_acc = topk_accuracy(output=list_logits_rel, target=list_gt_rel, topk=ks)
             print(f"\nVerb accuracy:")
             for i in range(len(ks)):
                 print(f"top-{ks[i]} accuracy: {verb_acc[i]}")
-                
+
             print(f"\nRel accuracy:")
             for i in range(len(ks)):
                 print(f"top-{ks[i]} accuracy: {rel_acc[i]}")
-                
-            if opt.wandb: 
-                wandb.log({"val/verb_acc": acc_verb, "val/verb_balAcc": balacc_verb, "val/rel_acc": acc_rel, "val/rel_balAcc": balacc_rel, "val/epoch": epoch})
-            
-            
+
+            if opt.wandb:
+                wandb.log({"val/verb_acc": acc_verb, "val/verb_balAcc": balacc_verb, "val/rel_acc": acc_rel,
+                           "val/rel_balAcc": balacc_rel, "val/epoch": epoch})
+
             ##############
             # CHECKPOINT #
             ##############
@@ -247,9 +178,6 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.wandb:
         wandb.finish()
 
-       
-            
-            
 
 def main():
     # GET TRAINING DATASET
@@ -268,7 +196,7 @@ def main():
 
     path_annts = Path(args.ann_path)
     path_data = Path(args.data_path)
-    
+
     train_dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 
@@ -292,26 +220,26 @@ def main():
     cosine_annealing_param = args.num_epochs
 
     model = EASG_VAE(obj_dim,
-                    verb_dim,
-                    num_rels + 1,  # TODO: added num_rels + 1
-                    num_verbs, num_objs,
-                    args.hidden_proj_dim,
-                    args.proj_dim,
-                    args.hidden_dim,
-                    args.output_dim,
-                    args.dropout_prob,
-                    edge_criterion,
-                    args.graph_type
-                    )
+                     verb_dim,
+                     num_rels + 1,  # TODO: added num_rels + 1
+                     num_verbs, num_objs,
+                     args.hidden_proj_dim,
+                     args.proj_dim,
+                     args.hidden_dim,
+                     args.output_dim,
+                     args.dropout_prob,
+                     edge_criterion,
+                     args.graph_type
+                     )
+
     optimizer = Adam(model.parameters(), lr=args.lr_start)
-    
     if args.eval:
         assert args.resume is not None, "eval mode but checkpoint has not been specified"
         model_weights = torch.load(args.resume)['model_state_dict']
         print("Load model weights:\n", model.load_state_dict(model_weights))
         eval(dataloader=val_loader, model=model, device=device, opt=args)
         sys.exit(0)
-    
+
     if args.scheduler_type == 'cosine_annealing':
         scheduler = lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=cosine_annealing_param)
@@ -322,7 +250,8 @@ def main():
         raise Exception('Wrong scheduler type')
 
     # TRAIN THE MODEL
-    train(train_loader=train_loader, val_loader=val_loader, model=model, optimizer=optimizer, scheduler=scheduler, device=device, opt=args)
+    train(train_loader=train_loader, val_loader=val_loader, model=model, optimizer=optimizer, scheduler=scheduler,
+          device=device, opt=args)
 
 
 if __name__ == "__main__":
