@@ -30,7 +30,8 @@ def parse_args():
     parser.add_argument('--ann_path', type=str, default='./annts_in_new_format/', help='path to annotations')
     parser.add_argument('--data_path', type=str, default='./data/', help='path to ROI and clip features')
     parser.add_argument('--num_epochs', type=int, default=100, help='total number of epochs')
-    parser.add_argument('--beta', type=float, default=0.05, help='beta weighting kld of vae')
+    parser.add_argument('--beta', type=float, default=0.05, help='beta weighting kld of vae. beta=1 triggers weighted beta')
+    parser.add_argument('--kld_type', type=str, default='original', help='type of kld. Choose between original, mean, commonScenes')
     parser.add_argument('--hidden_proj_dim', type=int, default=1024, help='hidden dimension for linear projection')
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
@@ -47,7 +48,6 @@ def parse_args():
     parser.add_argument('--eval', action='store_true')
     args = parser.parse_args()
     return args
-
 
 def topk_accuracy(output: torch.Tensor, target: torch.Tensor, topk=(1,)):
     """
@@ -105,7 +105,6 @@ def topk_accuracy(output: torch.Tensor, target: torch.Tensor, topk=(1,)):
             list_topk_accs.append(topk_acc)
         return list_topk_accs  # list of topk accuracies for entire batch [topk1, topk2, ... etc]
 
-
 def save_checkpoint(model, optimizer, epoch, path):
     """
     Saves a checkpoint of the model and optimizer states, along with training metadata.
@@ -127,36 +126,37 @@ def save_checkpoint(model, optimizer, epoch, path):
     torch.save(checkpoint, path)
     print(f'Checkpoint saved to {path}')
 
-def plot_losses(loss_verb, loss_rels, kld):
+def plot_losses(loss_verb, loss_rels, kld, opt):
     import matplotlib.pyplot as plt
-    # Create a figure and axis objects for subplots
+
     fig, axs = plt.subplots(3, 1, figsize=(8, 12))
 
-    # Plot the first loss list
     axs[0].plot(loss_verb, label='Loss verb', color='blue')
     axs[0].set_title('Loss verb')
-    axs[0].set_xlabel('Epoch')
+    axs[0].set_xlabel('steps')
     axs[0].set_ylabel('Loss')
     axs[0].legend()
 
-    # Plot the second loss list
     axs[1].plot(loss_rels, label='Relationship loss', color='green')
     axs[1].set_title('Relationship loss')
-    axs[1].set_xlabel('Epoch')
+    axs[1].set_xlabel('steps')
     axs[1].set_ylabel('Loss')
     axs[1].legend()
 
-    # Plot the third loss list
     axs[2].plot(kld, label='kld', color='red')
     axs[2].set_title('kld')
-    axs[2].set_xlabel('Epoch')
+    axs[2].set_xlabel('steps')
     axs[2].set_ylabel('Loss')
     axs[2].legend()
 
     plt.tight_layout()
-    plt.savefig('losses_vae.png')
+    plt.savefig(f'plots/losses_vae_kld={opt.kld_type}_b={opt.beta}_ld={opt.output_dim}.png')
     plt.show()
 
+def weight_beta(num_epochs):
+    x = np.linspace(-6, 6, num_epochs)
+    weights = 1 / (1 + np.exp(-x))
+    return weights
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
@@ -171,8 +171,16 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     history_verb = []
     history_rels = []
     history_kld = []
+
+    if opt.beta==1:
+        w = weight_beta(opt.num_epochs)
+    else:
+        w = np.ones(opt.num_epochs)
+
     for epoch in range(opt.num_epochs):
         model.train()
+        print(epoch)
+        print(w[epoch])
         for bidx, _data in tqdm(enumerate(train_loader, 0), unit="batch", total=len(train_loader)):
             batch, verb_gt, rel_gt = _data
             batch = batch.to(device)
@@ -181,7 +189,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             optimizer.zero_grad()
             verb_logits, relationship_logits, mu, logvar = model(batch)
             loss_verb, loss_rel, kld = model.loss_functions(verb_gt, rel_gt, verb_logits, relationship_logits, mu, logvar)
-            loss = loss_verb + loss_rel + opt.beta*kld
+            loss = loss_verb + loss_rel + opt.beta*kld*w[epoch]
             history_verb.append(loss_verb.item())
             history_rels.append(loss_rel.item())
             history_kld.append(kld.item())
@@ -251,7 +259,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 
     # save losses plot
-    plot_losses(history_verb, history_rels, history_kld)
+    plot_losses(history_verb, history_rels, history_kld, opt)
 
     if opt.wandb:
         wandb.finish()
@@ -329,10 +337,6 @@ def eval(dataloader, model, device, opt):
             print(f"[GT] OBJ-VERB_REL: {gt_rel}")
             print("-"*30)
 
-            
-            
-            
-
 def main():
     # get datasets
     args = parse_args()
@@ -372,6 +376,7 @@ def main():
                     args.proj_dim,
                     args.hidden_dim,
                     args.output_dim,
+                    args.kld_type,
                     args.dropout_prob,
                     args.graph_type
                     )

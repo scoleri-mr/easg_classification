@@ -200,8 +200,9 @@ class EASGvae(nn.Module):
     def __init__(   self, object_feats_dim, verb_feats_dim, 
                     num_rels, num_verbs, num_objs, 
                     hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-                    dropout_prob=0.2, graph_type='gat'  ):
+                    kld_type, dropout_prob=0.2, graph_type='gat'):
         super(EASGvae, self).__init__()
+        self.kld_type = kld_type
         self.encoder = EASGEncoder(object_feats_dim, verb_feats_dim, 
                                    hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
                                    dropout_prob, graph_type)
@@ -223,8 +224,12 @@ class EASGvae(nn.Module):
     def loss_functions(self, verb_gt, rels_gt, verb_logits, relationship_logits, mu, logvar):
         loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
         loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)
-        # kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        kld =  torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim = 1), dim = 0)
+        if self.kld_type == 'original':
+            kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        elif self.kld_type == 'mean':
+            kld =  torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim = 1), dim = 0)
+        elif self.kld_type == 'commonScenes':
+            kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / mu.size(0)
         return loss_verb, loss_rel, kld
         
     def reparameterize(self, mu, logvar, eps_scale=1.):
