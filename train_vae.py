@@ -18,6 +18,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import time
 from sklearn.metrics import accuracy_score, balanced_accuracy_score
+import logging
 
 """"
 example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epochs200 --num_epochs 200
@@ -172,6 +173,16 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     history_rels = []
     history_kld = []
 
+    log_filename = f'log_{opt.kld_type}_b={opt.beta}_ld={opt.output_dim}'
+    log_file_path = os.path.join('./experiments', log_filename)
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.basicConfig(format='%(asctime)s.%(msecs)03d %(message)s',
+                        datefmt='%m/%d/%Y %H:%M:%S',
+                        level=logging.DEBUG,
+                        handlers=[logging.StreamHandler(), logging.FileHandler(filename=log_file_path, mode='w')],
+                        )
+    logger = logging.getLogger()
+
     if opt.beta==1:
         w = weight_beta(opt.num_epochs)
     else:
@@ -247,7 +258,12 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             print(f"\nRel accuracy:")
             for i in range(len(ks)):
                 print(f"top-{ks[i]} accuracy: {rel_acc[i]}")
-                
+            
+            logger.info(f'EPOCH {epoch}')
+            logger.info(f'VALIDATION: verb_acc={acc_verb}, verb_balAcc={balacc_verb}, rel_acc:{acc_rel}, rel_balAcc:{balacc_verb} ')
+            logger.info(f'topk verb accuracy [1,2,5,10]: {verb_acc[0].item():.4f}, {verb_acc[1].item():.4f}, {verb_acc[2].item():.4f}, {verb_acc[3].item():.4f}')
+            logger.info(f'topk rel accuracy [1,2,5,10]: {rel_acc[0].item():.4f}, {rel_acc[1].item():.4f}, {rel_acc[2].item():.4f}, {rel_acc[3].item():.4f}')
+            logger.info('\n')
             if opt.wandb: 
                 wandb.log({"val/verb_acc": acc_verb, "val/verb_balAcc": balacc_verb, "val/rel_acc": acc_rel, "val/rel_balAcc": balacc_rel, "val/epoch": epoch})
             
