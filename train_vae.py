@@ -154,21 +154,27 @@ def plot_losses(loss_verb, loss_rels, kld, opt):
     plt.savefig(f'plots/losses_vae_kld={opt.kld_type}_b={opt.beta}_ld={opt.output_dim}.png')
     plt.show()
 
-def weight_beta(num_epochs):
-    x = np.linspace(-6, 6, num_epochs)
-    weights = 1 / (1 + np.exp(-x))
+def weight_beta(num_epochs, beta):
+    if beta==1:
+        x = np.linspace(-6, 6, num_epochs)
+        weights = (1 / (1 + np.exp(-x)))*0.05
+    else:
+        weights = np.ones(num_epochs)
     return weights
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
         opt.exp_name = f"AE_{str(int(time.time()))}"
+    print(f"Training - exp name: {opt.exp_name}")        
         
     model = model.to(device)
+    logger = logging.getLogger()
+    w = weight_beta(opt.num_epochs, opt.beta)
+
     if opt.wandb:
-        wandb.init(project=f'easg_ae_{opt.graph_type}', config=opt, name=opt.exp_name)
+        wandb.init(project=f'autoencoders_easg', config=opt, name=opt.exp_name)
         wandb.watch(model, log="all")        
-        
-    print(f"Training - exp name: {opt.exp_name}")
+
     history_verb = []
     history_rels = []
     history_kld = []
@@ -181,17 +187,9 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                         level=logging.DEBUG,
                         handlers=[logging.StreamHandler(), logging.FileHandler(filename=log_file_path, mode='w')],
                         )
-    logger = logging.getLogger()
-
-    if opt.beta==1:
-        w = weight_beta(opt.num_epochs)
-    else:
-        w = np.ones(opt.num_epochs)
 
     for epoch in range(opt.num_epochs):
         model.train()
-        print(epoch)
-        print(w[epoch])
         for bidx, _data in tqdm(enumerate(train_loader, 0), unit="batch", total=len(train_loader)):
             batch, verb_gt, rel_gt = _data
             batch = batch.to(device)
@@ -208,68 +206,19 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             optimizer.step()
             if bidx % 10 == 0:
                 current_lr = scheduler.get_last_lr()[0]
-                print(f"Train epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}, kld: {kld.item()}")
-                if opt.wandb: wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "kdl":kld, "current_lr": current_lr})
-                    
+                # print(f"Train epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}, kld: {kld.item()}")
+                if opt.wandb: wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "kdl":kld, "current_lr": current_lr})                 
         scheduler.step()
         
         if epoch % 10 == 0:
-            ##############
-            # EVALUATION #
-            ##############
-            model = model.eval()
-            list_logits_verb, list_gt_verb = [], []
-            list_logits_rel, list_gt_rel = [], []
-            for bidx, _data in tqdm(enumerate(val_loader, 0), unit="batch", total=len(val_loader), desc="Validation"):
-                batch, verb_gt, rel_gt = _data
-                batch = batch.to(device)
-                verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
-                rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
-                out_verb, out_rel, mu, logvar = model(batch)
-                loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
-                out_rel = out_rel.contiguous().view(-1, 14)
-                # store val batch results for computing global accuracy and balanced accuracy
-                list_logits_verb.append(out_verb.cpu().detach())
-                list_logits_rel.append(out_rel.cpu().detach())
-                list_gt_verb.append(verb_gt.cpu().detach())
-                list_gt_rel.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
-            
-            list_logits_verb = torch.cat(list_logits_verb, dim=0)
-            list_pred_verb = torch.argmax(list_logits_verb, -1)
-            list_logits_rel = torch.cat(list_logits_rel, dim=0)
-            list_pred_rel = torch.argmax(list_logits_rel, -1)  # TODO: this does not address multiple verb-obj relationships!
-            list_gt_verb = torch.cat(list_gt_verb, dim=0)
-            list_gt_rel = torch.cat(list_gt_rel, dim=0)
-            
-            # TODO: during training the accuracy of realtions is not 100% correct - we consider only one relation at maximum for each object!
-            # compute accuracy
-            acc_verb, balacc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
-            acc_rel, balacc_rel = accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy())
-            print(f"Validation epoch {epoch}, acc_verb: {acc_verb:.4f}, balAcc_verb: {balacc_verb:.4f}, acc_rel: {acc_rel:.4f}, balAcc_rel: {balacc_rel:.4f}")
-            
-            # top-k acc
-            ks = [1,2,5,10]
-            verb_acc = topk_accuracy(output=list_logits_verb, target=list_gt_verb, topk=ks)
-            rel_acc = topk_accuracy(output=list_logits_rel, target=list_gt_rel, topk=ks)
-            print(f"\nVerb accuracy:")
-            for i in range(len(ks)):
-                print(f"top-{ks[i]} accuracy: {verb_acc[i]}")
-                
-            print(f"\nRel accuracy:")
-            for i in range(len(ks)):
-                print(f"top-{ks[i]} accuracy: {rel_acc[i]}")
-            
-            logger.info(f'EPOCH {epoch}')
-            logger.info(f'VALIDATION: verb_acc={acc_verb}, verb_balAcc={balacc_verb}, rel_acc:{acc_rel}, rel_balAcc:{balacc_verb} ')
-            logger.info(f'topk verb accuracy [1,2,5,10]: {verb_acc[0].item():.4f}, {verb_acc[1].item():.4f}, {verb_acc[2].item():.4f}, {verb_acc[3].item():.4f}')
-            logger.info(f'topk rel accuracy [1,2,5,10]: {rel_acc[0].item():.4f}, {rel_acc[1].item():.4f}, {rel_acc[2].item():.4f}, {rel_acc[3].item():.4f}')
-            logger.info('\n')
+            # EVALUATION
+            acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk = evaluation(model, val_loader, device, epoch)
+            local_logging(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk)
+
             if opt.wandb: 
                 wandb.log({"val/verb_acc": acc_verb, "val/verb_balAcc": balacc_verb, "val/rel_acc": acc_rel, "val/rel_balAcc": balacc_rel, "val/epoch": epoch})
             
-            ##############
-            # CHECKPOINT #
-            ##############
+            # CHECKPOINT
             save_dir = f"./experiments/{opt.exp_name}/checkpoints"
             os.makedirs(save_dir, exist_ok=True)
             save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
@@ -280,78 +229,59 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.wandb:
         wandb.finish()
 
-def eval(dataloader, model, device, opt):
-    """
-    Mainly used for debug
-    """
-    model = model.to(device)
-    model.eval()
-    count = -1
-    
-    for bidx, _data in tqdm(enumerate(dataloader, 0), unit="batch", total=len(dataloader)):
-        batch, batch_gt_verb, batch_gt_rel = _data
-        bs = len(batch)
-        batch = batch.to(device)
-        batch_pred_verb, batch_pred_rel = model(batch)  # [bs, num_verbs], [bs, num_objects, num_rels+1]
-        # let's try to rebuild gt and predicted graph!
-        batch_gt_verb = batch_gt_verb.view(-1).to(device)  # [bs, ]
-        batch_gt_rel = batch_gt_rel.to(device)  # [bs, num_objs, num_rels+1]
-        threshold = 0.5
-        no_obj_rel = batch_pred_rel.size(-1) - 1  # this will be num_rels
-        
-        assert isinstance(dataloader.dataset, EASGDatasetAE)
-        get_verb_name = dataloader.dataset.get_verb_name
-        get_obj_name = dataloader.dataset.get_obj_name
-        get_rel_name = dataloader.dataset.get_rel_name
+def local_logging(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk):
+    logger.info(f'EPOCH {epoch}')
+    logger.info(f'VALIDATION: verb_acc={acc_verb}, verb_balAcc={balacc_verb}, rel_acc:{acc_rel}, rel_balAcc:{balacc_verb} ')
+    logger.info(f'topk verb accuracy [1,2,5,10]: {verb_acc_topk[0].item():.4f}, {verb_acc_topk[1].item():.4f}, {verb_acc_topk[2].item():.4f}, {verb_acc_topk[3].item():.4f}')
+    logger.info(f'topk rel accuracy [1,2,5,10]: {rel_acc_topk[0].item():.4f}, {rel_acc_topk[1].item():.4f}, {rel_acc_topk[2].item():.4f}, {rel_acc_topk[3].item():.4f}')
+    logger.info('\n')
 
-        for i in range(bs):
-            count += 1
-            # verb pred/gt
-            verb_pred = batch_pred_verb[i].argmax(-1).item()
-            verb_gt = batch_gt_verb[i].item()
-            
-            # obj-rel pred
-            # 1. there can be multiple obj-verb relationships 
-            # 2. we need to apply sigmoid to obtain the score since we used BCE for training
-            pred_rel_logits = batch_pred_rel[i]  # [num_obj, num_rel + 1]
-            pred_rel_scores = F.sigmoid(pred_rel_logits)  # [num_obj, num_rel + 1]
-            # each num_obj can have multiple (>=1) predictions!
-            # List to hold the indices of elements greater than the threshold
-            pred_rel = {}  # key is object index - values are obj-verb relationships
-            for obj_idx in range(pred_rel_scores.size(0)):
-                # Get indices where tensor elements are greater than the threshold
-                indices = torch.where(pred_rel_scores[obj_idx] > threshold)[0].tolist()
-                # TODO: because of BCE logic we can concurrently predict a valid relation (index<13) and no-obj-relation (index=13)
-                if no_obj_rel in indices: # if len(indices) == 1 and indices[0] == no_obj_rel:
-                    # object not present in graph
-                    continue
-                else:
-                    # pred_rel[obj_idx] = indices
-                    # using names...
-                    pred_rel[get_obj_name(obj_idx)] = [get_rel_name(r_i) for r_i in indices]
-                    
-            # obj-rel GT
-            _gt_rel = batch_gt_rel[i]  # [num_objs, num_rels+1] - 0/1 elements - there can be multiple 1 at each num_objs row
-            gt_rel = {}  # key is object index - values are obj-verb relationships
-            for obj_idx in range(_gt_rel.size(0)):
-                # Get indices where tensor elements are greater than the threshold
-                indices = torch.where(_gt_rel[obj_idx] > threshold)[0].tolist()
-                if no_obj_rel in indices: # if len(indices) == 1 and indices[0] == no_obj_rel:
-                    # object not present in graph
-                    continue
-                else:
-                    # gt_rel[obj_idx] = indices
-                    # using names....
-                    gt_rel[get_obj_name(obj_idx)] = [get_rel_name(r_i) for r_i in indices]
-                    
-            
-            print("-"*30)
-            print(f"Item [{count}]-th: ")
-            print(f"[PRED] VERB: {get_verb_name(verb_pred)}")
-            print(f"[PRED] OBJ-VERB_REL: {pred_rel}\n")
-            print(f"[GT] VERB: {get_verb_name(verb_gt)}")
-            print(f"[GT] OBJ-VERB_REL: {gt_rel}")
-            print("-"*30)
+
+def evaluation(model, val_loader, device, epoch):
+    model = model.eval()
+    list_logits_verb, list_gt_verb = [], []
+    list_logits_rel, list_gt_rel = [], []
+    for bidx, _data in tqdm(enumerate(val_loader, 0), unit="batch", total=len(val_loader), desc="Validation"):
+        batch, verb_gt, rel_gt = _data
+        batch = batch.to(device)
+        verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
+        rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
+        out_verb, out_rel, mu, logvar = model(batch)
+        loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
+        out_rel = out_rel.contiguous().view(-1, 14)
+        # store val batch results for computing global accuracy and balanced accuracy
+        list_logits_verb.append(out_verb.cpu().detach())
+        list_logits_rel.append(out_rel.cpu().detach())
+        list_gt_verb.append(verb_gt.cpu().detach())
+        list_gt_rel.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
+    
+    list_logits_verb = torch.cat(list_logits_verb, dim=0)
+    list_pred_verb = torch.argmax(list_logits_verb, -1)
+    list_logits_rel = torch.cat(list_logits_rel, dim=0)
+    list_pred_rel = torch.argmax(list_logits_rel, -1)  # TODO: this does not address multiple verb-obj relationships!
+    list_gt_verb = torch.cat(list_gt_verb, dim=0)
+    list_gt_rel = torch.cat(list_gt_rel, dim=0)
+    
+    # TODO: during training the accuracy of realtions is not 100% correct - we consider only one relation at maximum for each object!
+    # compute accuracy
+    acc_verb, balacc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
+    acc_rel, balacc_rel = accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy())
+    print(f"Validation epoch {epoch}, acc_verb: {acc_verb:.4f}, balAcc_verb: {balacc_verb:.4f}, acc_rel: {acc_rel:.4f}, balAcc_rel: {balacc_rel:.4f}")
+    
+    # top-k acc
+    ks = [1,2,5,10]
+    verb_acc_topk = topk_accuracy(output=list_logits_verb, target=list_gt_verb, topk=ks)
+    rel_acc_topk = topk_accuracy(output=list_logits_rel, target=list_gt_rel, topk=ks)
+    print(f"\nVerb accuracy:")
+    for i in range(len(ks)):
+        print(f"top-{ks[i]} accuracy: {verb_acc_topk[i]}")
+        
+    print(f"\nRel accuracy:")
+    for i in range(len(ks)):
+        print(f"top-{ks[i]} accuracy: {rel_acc_topk[i]}")
+
+    return acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk
+
 
 def main():
     # get datasets
