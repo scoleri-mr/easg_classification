@@ -169,7 +169,8 @@ def save_checkpoint(model, optimizer, epoch, path):
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
-        opt.exp_name = f"AE_{str(int(time.time()))}"
+        # opt.exp_name = f"AE_{str(int(time.time()))}"
+        opt.exp_name = f"AE_outdim={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_ld={opt.output_dim}"
         
     history_verb = []
     history_rels = []
@@ -186,7 +187,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
 
     model = model.to(device)
     if opt.wandb:
-        wandb.init(project=f'easg_ae_{opt.graph_type}', config=opt, name=opt.exp_name)
+        wandb.init(project=f'ae_easg', config=opt, name=opt.exp_name)
         wandb.watch(model, log="all")        
         
     print(f"Training - exp name: {opt.exp_name}")
