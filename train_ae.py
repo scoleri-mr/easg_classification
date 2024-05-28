@@ -25,7 +25,7 @@ example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epoc
 - TODO: relazioni sono sbilanciate, ce n'è una (la non presenza dell'oggetto che è predominante) - valutare alternativa
 - TODO: autodecoder logic?
 """
-def plot_losses(loss_verb, loss_rels):
+def plot_losses(loss_verb, loss_rels, opt):
     import matplotlib.pyplot as plt
     # Create a figure and axis objects for subplots
     fig, axs = plt.subplots(2, 1, figsize=(8, 12))
@@ -45,7 +45,7 @@ def plot_losses(loss_verb, loss_rels):
     axs[1].legend()
 
     plt.tight_layout()
-    plt.savefig('losses_ae.png')
+    plt.savefig(f'plots/losses_ae_{opt.output_dim}.png')
     plt.show()
 
 def parse_args():
@@ -285,7 +285,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             os.makedirs(save_dir, exist_ok=True)
             save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 
-    plot_losses(history_verb, history_rels)
+    plot_losses(history_verb, history_rels, opt)
 
     if opt.wandb:
         wandb.finish()
