@@ -170,7 +170,7 @@ def save_checkpoint(model, optimizer, epoch, path):
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
         # opt.exp_name = f"AE_{str(int(time.time()))}"
-        opt.exp_name = f"AE_outdim={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_ld={opt.output_dim}"
+        opt.exp_name = f"AE_od={opt.output_dim}"
         
     history_verb = []
     history_rels = []
@@ -289,83 +289,6 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
 
     if opt.wandb:
         wandb.finish()
-
-def eval(dataloader, model, device, opt):
-    """
-    Mainly used for debug
-    """
-    model = model.to(device)
-    model.eval()
-    count = -1
-    
-    for bidx, _data in tqdm(enumerate(dataloader, 0), unit="batch", total=len(dataloader)):
-        batch, batch_gt_verb, batch_gt_rel = _data
-        bs = len(batch)
-        batch = batch.to(device)
-        batch_pred_verb, batch_pred_rel = model(batch)  # [bs, num_verbs], [bs, num_objects, num_rels+1]
-        # let's try to rebuild gt and predicted graph!
-        batch_gt_verb = batch_gt_verb.view(-1).to(device)  # [bs, ]
-        batch_gt_rel = batch_gt_rel.to(device)  # [bs, num_objs, num_rels+1]
-        threshold = 0.5
-        no_obj_rel = batch_pred_rel.size(-1) - 1  # this will be num_rels
-        
-        assert isinstance(dataloader.dataset, EASGDatasetAE)
-        get_verb_name = dataloader.dataset.get_verb_name
-        get_obj_name = dataloader.dataset.get_obj_name
-        get_rel_name = dataloader.dataset.get_rel_name
-
-        for i in range(bs):
-            count += 1
-            # verb pred/gt
-            verb_pred = batch_pred_verb[i].argmax(-1).item()
-            verb_gt = batch_gt_verb[i].item()
-            
-            # obj-rel pred
-            # 1. there can be multiple obj-verb relationships 
-            # 2. we need to apply sigmoid to obtain the score since we used BCE for training
-            pred_rel_logits = batch_pred_rel[i]  # [num_obj, num_rel + 1]
-            pred_rel_scores = F.sigmoid(pred_rel_logits)  # [num_obj, num_rel + 1]
-            # each num_obj can have multiple (>=1) predictions!
-            # List to hold the indices of elements greater than the threshold
-            pred_rel = {}  # key is object index - values are obj-verb relationships
-            for obj_idx in range(pred_rel_scores.size(0)):
-                # Get indices where tensor elements are greater than the threshold
-                indices = torch.where(pred_rel_scores[obj_idx] > threshold)[0].tolist()
-                # TODO: because of BCE logic we can concurrently predict a valid relation (index<13) and no-obj-relation (index=13)
-                if no_obj_rel in indices: # if len(indices) == 1 and indices[0] == no_obj_rel:
-                    # object not present in graph
-                    continue
-                else:
-                    # pred_rel[obj_idx] = indices
-                    # using names...
-                    pred_rel[get_obj_name(obj_idx)] = [get_rel_name(r_i) for r_i in indices]
-                    
-            # obj-rel GT
-            _gt_rel = batch_gt_rel[i]  # [num_objs, num_rels+1] - 0/1 elements - there can be multiple 1 at each num_objs row
-            gt_rel = {}  # key is object index - values are obj-verb relationships
-            for obj_idx in range(_gt_rel.size(0)):
-                # Get indices where tensor elements are greater than the threshold
-                indices = torch.where(_gt_rel[obj_idx] > threshold)[0].tolist()
-                if no_obj_rel in indices: # if len(indices) == 1 and indices[0] == no_obj_rel:
-                    # object not present in graph
-                    continue
-                else:
-                    # gt_rel[obj_idx] = indices
-                    # using names....
-                    gt_rel[get_obj_name(obj_idx)] = [get_rel_name(r_i) for r_i in indices]
-                    
-            
-            print("-"*30)
-            print(f"Item [{count}]-th: ")
-            print(f"[PRED] VERB: {get_verb_name(verb_pred)}")
-            print(f"[PRED] OBJ-VERB_REL: {pred_rel}\n")
-            print(f"[GT] VERB: {get_verb_name(verb_gt)}")
-            print(f"[GT] OBJ-VERB_REL: {gt_rel}")
-            print("-"*30)
-
-            
-            
-            
 
 def main():
     # get datasets

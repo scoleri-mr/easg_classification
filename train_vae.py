@@ -165,7 +165,7 @@ def weight_beta(num_epochs, beta):
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
         # opt.exp_name = f"AE_{str(int(time.time()))}"
-        opt.exp_name = f"VAE_outdim={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_ld={opt.output_dim}"
+        opt.exp_name = f"VAE_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_ld={opt.output_dim}"
     print(f"Training - exp name: {opt.exp_name}")        
         
     model = model.to(device)
