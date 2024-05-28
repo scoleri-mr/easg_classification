@@ -165,7 +165,7 @@ def weight_beta(num_epochs, beta):
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
         # opt.exp_name = f"AE_{str(int(time.time()))}"
-        opt.exp_name = f"VAE_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_ld={opt.output_dim}"
+        opt.exp_name = f"VAE_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}"
     print(f"Training - exp name: {opt.exp_name}")        
         
     model = model.to(device)
@@ -236,7 +236,6 @@ def local_logging(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, ver
     logger.info(f'topk verb accuracy [1,2,5,10]: {verb_acc_topk[0].item():.4f}, {verb_acc_topk[1].item():.4f}, {verb_acc_topk[2].item():.4f}, {verb_acc_topk[3].item():.4f}')
     logger.info(f'topk rel accuracy [1,2,5,10]: {rel_acc_topk[0].item():.4f}, {rel_acc_topk[1].item():.4f}, {rel_acc_topk[2].item():.4f}, {rel_acc_topk[3].item():.4f}')
     logger.info('\n')
-
 
 def evaluation(model, val_loader, device, epoch):
     model = model.eval()
