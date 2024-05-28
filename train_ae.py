@@ -176,7 +176,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     history_verb = []
     history_rels = []
 
-    log_filename = f'log_ae'
+    log_filename = f'log_ae_od={opt.output_dim}'
     log_file_path = os.path.join('./experiments', log_filename)
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
     logging.basicConfig(format='%(asctime)s.%(msecs)03d %(message)s',
@@ -257,7 +257,7 @@ def evaluation(model, val_loader, device, epoch):
         batch = batch.to(device)
         verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
         rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
-        out_verb, out_rel, mu, logvar = model(batch)
+        out_verb, out_rel = model(batch)
         loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
         out_rel = out_rel.contiguous().view(-1, 14)
         # store val batch results for computing global accuracy and balanced accuracy

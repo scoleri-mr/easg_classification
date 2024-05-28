@@ -179,7 +179,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     history_rels = []
     history_kld = []
 
-    log_filename = f'log_{opt.kld_type}_b={opt.beta}_ld={opt.output_dim}'
+    log_filename = f'log_vae_{opt.kld_type}_b={opt.beta}_ld={opt.output_dim}'
     log_file_path = os.path.join('./experiments', log_filename)
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
     logging.basicConfig(format='%(asctime)s.%(msecs)03d %(message)s',
