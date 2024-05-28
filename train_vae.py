@@ -164,8 +164,7 @@ def weight_beta(num_epochs, beta):
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
-        # opt.exp_name = f"AE_{str(int(time.time()))}"
-        opt.exp_name = f"VAE_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}"
+        opt.exp_name = f"VAE_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_{str(int(time.time()))}"
     print(f"Training - exp name: {opt.exp_name}")        
         
     model = model.to(device)
@@ -220,11 +219,12 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 wandb.log({"val/verb_acc": acc_verb, "val/verb_balAcc": balacc_verb, "val/rel_acc": acc_rel, "val/rel_balAcc": balacc_rel, "val/epoch": epoch})
             
             # CHECKPOINT
-            save_dir = f"./experiments/{opt.exp_name}/checkpoints"
-            os.makedirs(save_dir, exist_ok=True)
-            save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
+            # save_dir = f"./experiments/{opt.exp_name}/checkpoints"
+            # os.makedirs(save_dir, exist_ok=True)
+            # save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 
-    # save losses plot
+    acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk = evaluation(model, val_loader, device, epoch)
+    local_logging(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk)
     plot_losses(history_verb, history_rels, history_kld, opt)
 
     if opt.wandb:
