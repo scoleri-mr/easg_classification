@@ -223,8 +223,11 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             # os.makedirs(save_dir, exist_ok=True)
             # save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 
-    acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk = evaluation(model, val_loader, device, epoch)
-    local_logging(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk)
+    final_verb_accuracies, final_relationship_accuracies = evaluate_model(model, val_loader, epoch)
+    local_logging2(logger, epoch, final_verb_accuracies, final_relationship_accuracies
+                   )
+    # acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk = evaluation(model, val_loader, device, epoch)
+    # local_logging(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk)
     plot_losses(history_verb, history_rels, history_kld, opt)
 
     if opt.wandb:
@@ -237,6 +240,83 @@ def local_logging(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, ver
     logger.info(f'topk rel accuracy [1,2,5,10]: {rel_acc_topk[0].item():.4f}, {rel_acc_topk[1].item():.4f}, {rel_acc_topk[2].item():.4f}, {rel_acc_topk[3].item():.4f}')
     logger.info('\n')
 
+def local_logging2(logger, epoch, verb_topk, rels_topk):
+    logger.info(f'VALIDATION EPOCH {epoch}')
+    logger.info(f'topk verb accuracy [1,2,5,10]: {verb_topk['top1'].item():.4f}, {verb_topk['top2'].item():.4f}, {verb_topk['top5'].item():.4f}, {verb_topk['top10'].item():.4f}')
+    logger.info(f'topk rels accuracy [1,2,5,10]: {rels_topk['top1'].item():.4f}, {rels_topk['top2'].item():.4f}, {rels_topk['top5'].item():.4f}, {rels_topk['top10'].item():.4f}')
+    logger.info('\n')
+
+import torch
+import torch.nn.functional as F
+from sklearn.metrics import balanced_accuracy_score
+
+def compute_topk_balanced_accuracy(verbs_logits, rels_pred, verb_gt, rels_gt, k_list=[1, 2, 5, 10]):
+    bs = verbs_logits.size(0)
+    num_objects = 391
+
+    # Reshape relationship matrices
+    # rels_pred = rels_pred.view(bs, num_objects, num_relationships)
+    # rels_gt = rels_gt.view(bs, num_objects, num_relationships)
+    
+    # Exclude the 13th relationship
+    rels_pred = rels_pred[:, :, :13]
+    rels_gt = rels_gt[:, :, :13]
+
+    # Verb top-k accuracy
+    topk_accuracies = {}
+    for k in k_list:
+        topk_predictions = torch.topk(verbs_logits, k, dim=1).indices
+        topk_correct = topk_predictions.eq(verb_gt.view(-1, 1).expand_as(topk_predictions))
+        topk_correct_any = topk_correct.any(dim=1)
+        topk_balanced_acc = balanced_accuracy_score(torch.ones_like(topk_correct_any).cpu(), topk_correct_any.cpu())
+        topk_accuracies[f'top{k}'] = topk_balanced_acc
+
+    # Relationship top-k accuracy
+    relationship_topk_accuracies = {}
+    for k in k_list:
+        relationship_accuracies = []
+        for b in range(bs):
+            for i in range(num_objects):
+                if torch.sum(rels_gt[b, i, :]) > 0:  # Check if object is present
+                    topk_predictions = torch.topk(rels_pred[b, i, :], k, dim=0).indices
+                    gt_relations = torch.nonzero(rels_gt[b, i, :], as_tuple=False).squeeze()
+                    correct = torch.any(torch.eq(topk_predictions.view(-1, 1), gt_relations.view(1, -1)), dim=1).any().item()
+                    relationship_accuracies.append(correct)
+        relationship_accuracies = torch.tensor(relationship_accuracies)
+        balanced_relationship_acc = balanced_accuracy_score(torch.ones_like(relationship_accuracies).cpu(), relationship_accuracies.cpu())
+        relationship_topk_accuracies[f'top{k}'] = balanced_relationship_acc
+
+    return topk_accuracies, relationship_topk_accuracies
+
+def evaluate_model(model, val_loader, epoch, k_list=[1, 2, 5, 10]):
+    total_verb_accuracies = {f'top{k}': [] for k in k_list}
+    total_relationship_accuracies = {f'top{k}': [] for k in k_list}
+    model.eval()
+    with torch.no_grad():
+        for batch, verb_gt, rel_gt in val_loader:
+            verb_logits, rels_pred = model(batch)
+            topk_accuracies, relationship_topk_accuracies = compute_topk_balanced_accuracy(
+                verb_logits, rels_pred, verb_gt, rel_gt, k_list
+            )
+            
+            for k in k_list:
+                total_verb_accuracies[f'top{k}'].append(topk_accuracies[f'top{k}'])
+                total_relationship_accuracies[f'top{k}'].append(relationship_topk_accuracies[f'top{k}'])
+
+    # Compute the mean accuracy for each k
+    final_verb_accuracies = {k: torch.tensor(total_verb_accuracies[k]).mean().item() for k in total_verb_accuracies}
+    final_relationship_accuracies = {k: torch.tensor(total_relationship_accuracies[k]).mean().item() for k in total_relationship_accuracies}
+
+    print(f'Epoch {epoch} accuracy:')
+    for i in range(len(k_list)):
+        print(f"top-{k_list[i]} accuracy: {final_verb_accuracies[f'top{k_list[i]}']}")
+        
+    print(f"\nRel accuracy:")
+    for i in range(len(k_list)):
+        print(f"top-{k_list[i]} accuracy: {final_relationship_accuracies[f'top{k_list[i]}']}")
+
+    return final_verb_accuracies, final_relationship_accuracies
+
 def evaluation(model, val_loader, device, epoch):
     model = model.eval()
     list_logits_verb, list_gt_verb = [], []
@@ -246,8 +326,7 @@ def evaluation(model, val_loader, device, epoch):
         batch = batch.to(device)
         verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
         rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
-        out_verb, out_rel, mu, logvar = model(batch)
-        loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
+        out_verb, out_rel, _, _ = model(batch)
         out_rel = out_rel.contiguous().view(-1, 14)
         # store val batch results for computing global accuracy and balanced accuracy
         list_logits_verb.append(out_verb.cpu().detach())
@@ -281,7 +360,6 @@ def evaluation(model, val_loader, device, epoch):
         print(f"top-{ks[i]} accuracy: {rel_acc_topk[i]}")
 
     return acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk
-
 
 def main():
     # get datasets
