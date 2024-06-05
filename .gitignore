@@ -22,3 +22,4 @@ only_verb_models.py
 autoencoder_original.py
 prova.ipynb
 eval_vae.py
+run_experiments.sh
