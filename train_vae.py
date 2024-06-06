@@ -212,8 +212,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
         
         if epoch % 10 == 0:
             # EVALUATION
-            # acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk = evaluation(model, val_loader, device, epoch)
-            # local_logging(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk)
+            evaluation(model, val_loader, epoch, device)
 
             # if opt.wandb: 
             #     wandb.log({"val/verb_acc": acc_verb, "val/verb_balAcc": balacc_verb, "val/rel_acc": acc_rel, "val/rel_balAcc": balacc_rel, "val/epoch": epoch})
@@ -222,11 +221,6 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             # save_dir = f"./experiments/{opt.exp_name}/checkpoints"
             # os.makedirs(save_dir, exist_ok=True)
             # save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
-
-            # final_verb_accuracies, final_relationship_accuracies = evaluate_model(model, val_loader, epoch, device)
-            # local_logging2(logger, epoch, final_verb_accuracies, final_relationship_accuracies)
-
-            evaluation_mine(model, val_loader, epoch, device)
 
     # acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk = evaluation(model, val_loader, device, epoch)
     # local_logging(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk)
@@ -248,74 +242,7 @@ def local_logging2(logger, epoch, verb_topk, rels_topk):
     logger.info(f"topk rels accuracy [1,2,5,10]: {rels_topk['top1']:.4f}, {rels_topk['top2']:.4f}, {rels_topk['top5']:.4f}, {rels_topk['top10']:.4f}")
     logger.info("\n")
 
-def compute_topk_balanced_accuracy(verbs_logits, rels_pred, verb_gt, rels_gt, k_list=[1, 2, 5, 10]):
-    bs = verbs_logits.size(0)
-    num_objects = 391
-
-    verbs_logits = verbs_logits.cpu().detach()
-    rels_pred = rels_pred.cpu().detach()
-    
-    # Exclude the 13th relationship
-    rels_pred = rels_pred[:, :, :13]
-    rels_gt = rels_gt[:, :, :13]
-
-    # Verb top-k accuracy
-    topk_accuracies = {}
-    for k in k_list:
-        topk_predictions = torch.topk(verbs_logits, k, dim=1).indices
-        topk_correct = topk_predictions.eq(verb_gt.view(-1, 1).expand_as(topk_predictions))
-        topk_correct_any = topk_correct.any(dim=1)
-        topk_balanced_acc = balanced_accuracy_score(torch.ones_like(topk_correct_any).cpu(), topk_correct_any.cpu())
-        topk_accuracies[f'top{k}'] = topk_balanced_acc
-
-    # Relationship top-k accuracy
-    relationship_topk_accuracies = {}
-    for k in k_list:
-        relationship_accuracies = []
-        for b in range(bs):
-            for i in range(num_objects):
-                if torch.sum(rels_gt[b, i, :]) > 0:  # Check if object is present
-                    topk_predictions = torch.topk(rels_pred[b, i, :], k, dim=0).indices
-                    gt_relations = torch.nonzero(rels_gt[b, i, :], as_tuple=False).squeeze()
-                    correct = torch.any(torch.eq(topk_predictions.view(-1, 1), gt_relations.view(1, -1)), dim=1).any().item()
-                    relationship_accuracies.append(correct)
-        relationship_accuracies = torch.tensor(relationship_accuracies)
-        balanced_relationship_acc = balanced_accuracy_score(torch.ones_like(relationship_accuracies).cpu(), relationship_accuracies.cpu())
-        relationship_topk_accuracies[f'top{k}'] = balanced_relationship_acc
-
-    return topk_accuracies, relationship_topk_accuracies
-
-def evaluate_model(model, val_loader, epoch, device, k_list=[1, 2, 5, 10]):
-    total_verb_accuracies = {f'top{k}': [] for k in k_list}
-    total_relationship_accuracies = {f'top{k}': [] for k in k_list}
-    model.eval()
-    with torch.no_grad():
-        for batch, verb_gt, rel_gt in val_loader:
-            batch = batch.to(device)
-            verb_logits, rels_pred, _, _ = model(batch)
-            topk_accuracies, relationship_topk_accuracies = compute_topk_balanced_accuracy(
-                verb_logits, rels_pred, verb_gt, rel_gt, k_list
-            )
-            
-            for k in k_list:
-                total_verb_accuracies[f'top{k}'].append(topk_accuracies[f'top{k}'])
-                total_relationship_accuracies[f'top{k}'].append(relationship_topk_accuracies[f'top{k}'])
-
-    # Compute the mean accuracy for each k
-    final_verb_accuracies = {k: torch.tensor(total_verb_accuracies[k]).mean().item() for k in total_verb_accuracies}
-    final_relationship_accuracies = {k: torch.tensor(total_relationship_accuracies[k]).mean().item() for k in total_relationship_accuracies}
-
-    print(f'Epoch {epoch} accuracy:')
-    for i in range(len(k_list)):
-        print(f"top-{k_list[i]} accuracy: {final_verb_accuracies[f'top{k_list[i]}']}")
-        
-    print(f"\nRel accuracy:")
-    for i in range(len(k_list)):
-        print(f"top-{k_list[i]} accuracy: {final_relationship_accuracies[f'top{k_list[i]}']}")
-
-    return final_verb_accuracies, final_relationship_accuracies
-
-def evaluation_mine(model, val_loader, epoch, device, k_list = [1,2,5,10]):
+def evaluation(model, val_loader, epoch, device, k_list = [1,2,5,10]):
     model = model.eval()
     list_logits_verb, list_gt_verb = [], []
     list_logits_rel, list_gt_rels = [], []
@@ -351,19 +278,21 @@ def evaluation_mine(model, val_loader, epoch, device, k_list = [1,2,5,10]):
     # only the topk accuracy makes sense here since we can have more than one relationship
 
     # Exclude the 13th relationship
-    list_logits_rels = torch.cat(list_logits_rel, dim=0)  # [total_instances, 14]
+    list_logits_rels = torch.cat(list_logits_rel, dim=0).view(-1, 14)  # [total_instances, 14]
     list_gt_rels = torch.cat(list_gt_rels, dim=0)  # [total_instances]
+    print(list_logits_rels.size())
 
-    relationship_accuracies = []
+    relationship_accuracies = {k: [] for k in k_list}
     for i in range(list_logits_rels.shape[0]):
-        if list_gt_rels[i] != 13:  # If the object is present
-            topk_predictions = torch.topk(list_logits_rels[i, :-1], max(k_list), dim=0).indices
-            gt_relations = list_gt_rels[i]
-            correct = (topk_predictions == gt_relations).any().item()
-            relationship_accuracies.append(correct)
+        gt_relations = list_gt_rels[i]
+        if gt_relations != 13:  # Exclude the 13th relationship
+            for k in k_list:
+                topk_predictions = torch.topk(list_logits_rels[i, :-1], k, dim=0).indices
+                correct = (topk_predictions == gt_relations).any().item()
+                relationship_accuracies[k].append(correct)
 
     for k in k_list:
-        topk_acc = np.mean([(torch.topk(list_logits_rels[i, :-1], k, dim=0).indices == list_gt_rels[i]).any().item() for i in range(list_logits_rels.shape[0]) if list_gt_rels[i] != 13])
+        topk_acc = np.mean(relationship_accuracies[k])
         print(f"top-{k} relationship accuracy: {topk_acc:.4f}")
 
 
