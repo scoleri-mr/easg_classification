@@ -210,39 +210,34 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 if opt.wandb: wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "kdl":kld, "current_lr": current_lr})                 
         scheduler.step()
         
-        if epoch % 10 == 0:
+        if (epoch+1) % 10 == 0 or epoch == 0:
             # EVALUATION
-            evaluation(model, val_loader, epoch, device)
+            acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device)
+            local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch+1, [1,2,5,10])
 
-            # if opt.wandb: 
-            #     wandb.log({"val/verb_acc": acc_verb, "val/verb_balAcc": balacc_verb, "val/rel_acc": acc_rel, "val/rel_balAcc": balacc_rel, "val/epoch": epoch})
+            if opt.wandb: 
+                wandb.log({"epoch": epoch, "acc_verb": acc_verb, "balacc_verb": balacc_verb, "topk_acc_verb":topk_acc_verb, "topk_acc_rels":topk_acc_rels})
             
             # CHECKPOINT
             # save_dir = f"./experiments/{opt.exp_name}/checkpoints"
             # os.makedirs(save_dir, exist_ok=True)
             # save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 
-    # acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk = evaluation(model, val_loader, device, epoch)
-    # local_logging(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk)
     plot_losses(history_verb, history_rels, history_kld, opt)
+    if opt.wandb: 
+        wandb.log({"epoch": epoch, "acc_verb": acc_verb, "balacc_verb": balacc_verb, "topk_acc_verb":topk_acc_verb, "topk_acc_rels":topk_acc_rels})
 
     if opt.wandb:
         wandb.finish()
 
-def local_logging(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk):
-    logger.info(f'EPOCH {epoch}')
-    logger.info(f'VALIDATION: verb_acc={acc_verb}, verb_balAcc={balacc_verb}, rel_acc:{acc_rel}, rel_balAcc:{balacc_verb} ')
-    logger.info(f'topk verb accuracy [1,2,5,10]: {verb_acc_topk[0].item():.4f}, {verb_acc_topk[1].item():.4f}, {verb_acc_topk[2].item():.4f}, {verb_acc_topk[3].item():.4f}')
-    logger.info(f'topk rel accuracy [1,2,5,10]: {rel_acc_topk[0].item():.4f}, {rel_acc_topk[1].item():.4f}, {rel_acc_topk[2].item():.4f}, {rel_acc_topk[3].item():.4f}')
-    logger.info('\n')
-
-def local_logging2(logger, epoch, verb_topk, rels_topk):
+def local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch, list_k):
     logger.info(f"VALIDATION EPOCH {epoch}:")
-    logger.info(f"topk verb accuracy [1,2,5,10]: {verb_topk['top1']:.4f}, {verb_topk['top2']:.4f}, {verb_topk['top5']:.4f}, {verb_topk['top10']:.4f}")
-    logger.info(f"topk rels accuracy [1,2,5,10]: {rels_topk['top1']:.4f}, {rels_topk['top2']:.4f}, {rels_topk['top5']:.4f}, {rels_topk['top10']:.4f}")
+    logger.info(f"acc_verb: {acc_verb}, balacc_verb: {balacc_verb}")
+    logger.info(f"topk verb accuracy {list_k}: {topk_acc_verb[list_k[0]].item():.4f}, {topk_acc_verb[list_k[1]].item():.4f}, {topk_acc_verb[list_k[2]].item():.4f}, {topk_acc_verb[list_k[3]].item():.4f}")
+    logger.info(f"topk rels accuracy {list_k}: {topk_acc_rels[list_k[0]].item():.4f}, {topk_acc_rels[list_k[1]].item():.4f}, {topk_acc_rels[list_k[2]].item():.4f}, {topk_acc_rels[list_k[3]].item():.4f}")
     logger.info("\n")
 
-def evaluation(model, val_loader, epoch, device, k_list = [1,2,5,10]):
+def evaluation(model, val_loader, device, k_list = [1,2,5,10]):
     model = model.eval()
     list_logits_verb, list_gt_verb = [], []
     list_logits_rel, list_gt_rels = [], []
@@ -260,7 +255,6 @@ def evaluation(model, val_loader, epoch, device, k_list = [1,2,5,10]):
         list_gt_verb.append(verb_gt.cpu().detach())
         list_gt_rels.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
 
-    print(f'VALIDATION EPOCH {epoch}:')
     # VERB ACCURACIES
     # total verb accuracy and balanced verb accuracy 
     list_logits_verb = torch.cat(list_logits_verb, dim=0)
@@ -268,21 +262,16 @@ def evaluation(model, val_loader, epoch, device, k_list = [1,2,5,10]):
     list_gt_verb = torch.cat(list_gt_verb, dim=0)
     acc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
     balacc_verb = balanced_accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
-    print(f"acc_verb: {acc_verb:.4f}, balacc_verb: {balacc_verb:.4f}")
     # topk verb accuracy
-    verb_acc_topk = topk_accuracy(output=list_logits_verb, target=list_gt_verb, topk=k_list)
-    for i in range(len(k_list)):
-        print(f"top-{k_list[i]} verb accuracy: {verb_acc_topk[i]}")
+    topk_acc_verb = topk_accuracy(output=list_logits_verb, target=list_gt_verb, topk=k_list)
+    topk_acc_verb = dict(zip(k_list, topk_acc_verb))
 
     # RELATIONSHIP ACCURACIES:
     # only the topk accuracy makes sense here since we can have more than one relationship
-
-    # Exclude the 13th relationship
     list_logits_rels = torch.cat(list_logits_rel, dim=0).view(-1, 14)  # [total_instances, 14]
     list_gt_rels = torch.cat(list_gt_rels, dim=0)  # [total_instances]
-    print(list_logits_rels.size())
-
     relationship_accuracies = {k: [] for k in k_list}
+    topk_acc_rels = {k: [] for k in k_list}
     for i in range(list_logits_rels.shape[0]):
         gt_relations = list_gt_rels[i]
         if gt_relations != 13:  # Exclude the 13th relationship
@@ -292,53 +281,9 @@ def evaluation(model, val_loader, epoch, device, k_list = [1,2,5,10]):
                 relationship_accuracies[k].append(correct)
 
     for k in k_list:
-        topk_acc = np.mean(relationship_accuracies[k])
-        print(f"top-{k} relationship accuracy: {topk_acc:.4f}")
+        topk_acc_rels[k] = np.mean(relationship_accuracies[k])
 
-
-def evaluation_alli(model, val_loader, device, epoch):
-    model = model.eval()
-    list_logits_verb, list_gt_verb = [], []
-    list_logits_rel, list_gt_rel = [], []
-    for bidx, _data in tqdm(enumerate(val_loader, 0), unit="batch", total=len(val_loader), desc="Validation"):
-        batch, verb_gt, rel_gt = _data
-        batch = batch.to(device)
-        verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
-        rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
-        out_verb, out_rel, _, _ = model(batch)
-        out_rel = out_rel.contiguous().view(-1, 14)
-        # store val batch results for computing global accuracy and balanced accuracy
-        list_logits_verb.append(out_verb.cpu().detach())
-        list_logits_rel.append(out_rel.cpu().detach())
-        list_gt_verb.append(verb_gt.cpu().detach())
-        list_gt_rel.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
-    
-    list_logits_verb = torch.cat(list_logits_verb, dim=0)
-    list_pred_verb = torch.argmax(list_logits_verb, -1)
-    list_logits_rel = torch.cat(list_logits_rel, dim=0)
-    list_pred_rel = torch.argmax(list_logits_rel, -1)  # TODO: this does not address multiple verb-obj relationships!
-    list_gt_verb = torch.cat(list_gt_verb, dim=0)
-    list_gt_rel = torch.cat(list_gt_rel, dim=0)
-    
-    # TODO: during training the accuracy of realtions is not 100% correct - we consider only one relation at maximum for each object!
-    # compute accuracy
-    acc_verb, balacc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
-    acc_rel, balacc_rel = accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy())
-    print(f"Validation epoch {epoch}, acc_verb: {acc_verb:.4f}, balAcc_verb: {balacc_verb:.4f}, acc_rel: {acc_rel:.4f}, balAcc_rel: {balacc_rel:.4f}")
-    
-    # top-k acc
-    ks = [1,2,5,10]
-    verb_acc_topk = topk_accuracy(output=list_logits_verb, target=list_gt_verb, topk=ks)
-    rel_acc_topk = topk_accuracy(output=list_logits_rel, target=list_gt_rel, topk=ks)
-    print(f"\nVerb accuracy:")
-    for i in range(len(ks)):
-        print(f"top-{ks[i]} accuracy: {verb_acc_topk[i]}")
-        
-    print(f"\nRel accuracy:")
-    for i in range(len(ks)):
-        print(f"top-{ks[i]} accuracy: {rel_acc_topk[i]}")
-
-    return acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk
+    return acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels
 
 def main():
     # get datasets
