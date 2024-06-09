@@ -19,6 +19,7 @@ from tqdm import tqdm
 import time
 from sklearn.metrics import accuracy_score, balanced_accuracy_score
 import logging
+from torch.utils.data import Subset
 
 """"
 example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epochs200 --num_epochs 200
@@ -45,7 +46,7 @@ def plot_losses(loss_verb, loss_rels, opt):
     axs[1].legend()
 
     plt.tight_layout()
-    plt.savefig(f'plots/losses_ae_{opt.output_dim}.png')
+    plt.savefig(f'plots/losses_ae_{opt.output_dim}_lr={opt.lr_start}.png')
     plt.show()
 
 def parse_args():
@@ -84,6 +85,7 @@ def parse_args():
     parser.add_argument('--resume', type=str, default=None,
                         help='checkpoint to resume')
     parser.add_argument('--eval', action='store_true')
+    parser.add_argument('--check_overfitting', action='store_true', help="If specified takes a random subset of the training set to check overfitting capabilities of the model")
     args = parser.parse_args()
     return args
 
@@ -176,7 +178,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     history_verb = []
     history_rels = []
 
-    log_filename = f'log_ae_od={opt.output_dim}'
+    log_filename = f'log_ae_od={opt.output_dim}_lr={opt.lr_start}'
     log_file_path = os.path.join('./experiments', log_filename)
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
     logging.basicConfig(format='%(asctime)s.%(msecs)03d %(message)s',
@@ -221,7 +223,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                     
         scheduler.step()
         
-        if epoch+1 % 10 == 0 or epoch==0:
+        if (epoch+1) % 10 == 0 or epoch==0:
             # EVALUATION
             acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device)
             local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch+1, [1,2,5,10])
@@ -363,12 +365,20 @@ def main():
 
     path_annts = Path(args.ann_path)
     path_data = Path(args.data_path)
-    
-    train_dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True) #, drop_last=False)  #shuffle=True)
 
-    validation_dataset = EASGDatasetAE(path_annts, path_data, 'val', verbs, objs, rels)
+    train_dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
+    if args.check_overfitting:
+        train_dataset = Subset(train_dataset, torch.randperm(len(train_dataset))[:300])
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True) #, drop_last=False)  #shuffle=True)
+    
+    if args.check_overfitting:
+        validation_dataset = train_dataset
+    else:
+        validation_dataset = EASGDatasetAE(path_annts, path_data, 'val', verbs, objs, rels)      
     val_loader = DataLoader(validation_dataset, batch_size=args.val_batch_size, shuffle=False, drop_last=False)
+
+    print(f"Training dataset: {len(train_dataset)} samples")
+    print(f"Validation dataset: {len(validation_dataset)} samples")
 
     # DEFINE THE MODEL  AND IT'PARAMETERS
     device = 'cuda' if cuda.is_available() else print('CUDA NOT AVAILABLE')
