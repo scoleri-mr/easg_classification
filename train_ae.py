@@ -231,6 +231,10 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             if opt.wandb: 
                 wandb.log({"epoch": epoch, "acc_verb": acc_verb, "balacc_verb": balacc_verb, "topk_acc_verb":topk_acc_verb, "topk_acc_rels":topk_acc_rels})
 
+            # recap excel file
+            if epoch+1==opt.num_epochs:
+                log_run_to_excel(opt, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels)
+
             # CHECKPOINT
             # save_dir = f"./experiments/{opt.exp_name}/checkpoints"
             # os.makedirs(save_dir, exist_ok=True)
@@ -240,6 +244,43 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
 
     if opt.wandb:
         wandb.finish()
+
+def log_run_to_excel(opt, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, file_path='ae_runs.xlsx'):
+    import pandas as pd
+    from openpyxl import load_workbook
+    topk_acc_verb[1].item()
+    run_data = {
+        'learning_rate': str(opt.lr_start),
+        'batch_size': opt.batch_size,
+        'dropout': opt.dropout_prob,
+        'latent_dim': opt.output_dim,
+        'epochs': opt.num_epochs,
+        'acc_verb': str("{:.4f}".format(acc_verb)),
+        'balacc_verb': str("{:.4f}".format(balacc_verb)), 
+        'top1_vacc': str("{:.4f}".format(topk_acc_verb[1].item())),
+        'top2_vacc': str("{:.4f}".format(topk_acc_verb[2].item())),
+        'top5_vacc': str("{:.4f}".format(topk_acc_verb[5].item())),
+        'top10_vacc': str("{:.4f}".format(topk_acc_verb[10].item())),
+        'top1_racc': str("{:.4f}".format(topk_acc_rels[1].item())),
+        'top2_racc': str("{:.4f}".format(topk_acc_rels[2].item())),
+        'top5_racc': str("{:.4f}".format(topk_acc_rels[5].item())),
+        'top10_racc': str("{:.4f}".format(topk_acc_rels[10].item())),
+    }
+    df = pd.DataFrame([run_data])
+
+    # Check if the Excel file already exists
+    try:
+        # Load existing Excel file
+        existing_df = pd.read_excel(file_path)
+        
+        # Append new data to existing DataFrame
+        df = pd.concat([existing_df, df], ignore_index=True)
+    except FileNotFoundError:
+        print('Creating excel file')
+        pass  # Excel file does not exist, so no need to append
+    
+    # Save DataFrame to Excel file
+    df.to_excel(file_path, index=False)
 
 def local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch, list_k):
     logger.info(f"VALIDATION EPOCH {epoch}:")

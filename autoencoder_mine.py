@@ -224,12 +224,10 @@ class EASGvae(nn.Module):
     def loss_functions(self, verb_gt, rels_gt, verb_logits, relationship_logits, mu, logvar):
         loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
         loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)
-        if self.kld_type == 'original':
+        if self.kld_type == 'original': # performs kld summing all together for the batch
             kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        elif self.kld_type == 'mean':
+        elif self.kld_type == 'mean':   # performs separate kld for each sample and then average them
             kld =  torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim = 1), dim = 0)
-        elif self.kld_type == 'commonScenes':
-            kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / mu.size(0)
         return loss_verb, loss_rel, kld
         
     def reparameterize(self, mu, logvar, eps_scale=1.):
