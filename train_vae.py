@@ -19,6 +19,7 @@ from tqdm import tqdm
 import time
 from sklearn.metrics import accuracy_score, balanced_accuracy_score
 from utils import *
+from torchvision.ops.focal_loss import sigmoid_focal_loss
 
 """"
 example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epochs200 --num_epochs 200
@@ -67,6 +68,7 @@ def parse_args():
     parser.add_argument('--resume', type=str, default=None,
                         help='checkpoint to resume')
     parser.add_argument('--eval', action='store_true')
+    parser.add_argument('--rel_focal', action='store_true', help="Enables focal loss for relationships prediction")
     args = parser.parse_args()
     return args
 
@@ -97,7 +99,12 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
             out_rel = out_rel.contiguous().view(-1, 14)
             rel_gt = rel_gt.view(-1, 14)
-            loss_rel = F.binary_cross_entropy_with_logits(input=out_rel, target=rel_gt)
+            if opt.rel_focal:
+                # focal loss # TODO: check hyperparameters
+                loss_rel = sigmoid_focal_loss(inputs=out_rel, targets=rel_gt, reduction="mean")
+            else:
+                # standard BCE
+                loss_rel = F.binary_cross_entropy_with_logits(input=out_rel, target=rel_gt)
             loss = loss_verb + loss_rel + (opt.kld_weight * kld)
 
             loss.backward()
@@ -124,14 +131,16 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
                 # TODO: num_rels+1 is managed at the dataset level
                 rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
-                out_verb, out_rel, _ = model(batch)
-                loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
+                out_verb, out_rel, kld = model(batch)
                 out_rel = out_rel.contiguous().view(-1, 14)
                 # store val batch results for computing global accuracy and balanced accuracy
                 list_logits_verb.append(out_verb.cpu().detach())
                 list_logits_rel.append(out_rel.cpu().detach())
                 list_gt_verb.append(verb_gt.cpu().detach())
                 list_gt_rel.append(rel_gt.view(-1, 14).argmax(-1).view(-1).cpu().detach())
+
+                if bidx % 10 == 0:
+                    wandb.log({"val/kld": kld.item()})
 
             list_logits_verb = torch.cat(list_logits_verb, dim=0)
             list_pred_verb = torch.argmax(list_logits_verb, -1)
@@ -142,7 +151,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             list_gt_rel = torch.cat(list_gt_rel, dim=0)
 
             # TODO: during training the accuracy of realtions is not 100% correct - we consider only one relation at maximum for each object!
-            #  compute accuracy
+            # compute accuracy
             acc_verb, balacc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(),
                                                    y_pred=list_pred_verb.cpu().numpy()), balanced_accuracy_score(
                 y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
@@ -177,6 +186,88 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
 
     if opt.wandb:
         wandb.finish()
+
+
+def eval(dataloader, model, device, opt):
+    """
+    Mainly used for debug
+    """
+    model = model.to(device)
+    model.eval()
+    count = -1
+
+    for bidx, _data in tqdm(enumerate(dataloader, 0), unit="batch", total=len(dataloader)):
+        batch, batch_gt_verb, batch_gt_rel = _data
+        bs = len(batch)
+        batch = batch.to(device)
+        
+        # vae testing
+        assert not model.training and isinstance(model, EASG_VAE)
+        encoded = model.encode(batch)
+        decoded = model.decode_mu(encoded)
+        batch_pred_verb, batch_pred_rel = decoded
+        # let's try to rebuild gt and predicted graph!
+        batch_gt_verb = batch_gt_verb.view(-1).to(device)  # [bs, ]
+        batch_gt_rel = batch_gt_rel.to(device)  # [bs, num_objs, num_rels+1]
+        threshold = 0.5
+        no_obj_rel = batch_pred_rel.size(-1) - 1  # this will be num_rels
+
+        assert isinstance(dataloader.dataset, EASGDatasetAE)
+        get_verb_name = dataloader.dataset.get_verb_name
+        get_obj_name = dataloader.dataset.get_obj_name
+        get_rel_name = dataloader.dataset.get_rel_name
+
+        for i in range(bs):
+            count += 1
+            # verb pred/gt
+            verb_pred = batch_pred_verb[i].argmax(-1).item()
+            verb_gt = batch_gt_verb[i].item()
+
+            # obj-rel pred
+            # 1. there can be multiple obj-verb relationships
+            # 2. we need to apply sigmoid to obtain the score since we used BCE for training
+            pred_rel_logits = batch_pred_rel[i]  # [num_obj, num_rel + 1]
+            pred_rel_scores = F.sigmoid(pred_rel_logits)  # [num_obj, num_rel + 1]
+            # each num_obj can have multiple (>=1) predictions!
+            # List to hold the indices of elements greater than the threshold
+            pred_rel = {}  # key is object index - values are obj-verb relationships
+            for obj_idx in range(pred_rel_scores.size(0)):
+                # Get indices where tensor elements are greater than the threshold
+                indices = torch.where(pred_rel_scores[obj_idx] > threshold)[0].tolist()
+                # TODO: because of BCE logic we can concurrently predict a valid relation (index<13) and no-obj-relation (index=13)
+                # if no_obj_rel in indices:  # if len(indices) == 1 and indices[0] == no_obj_rel:
+                #     # object not present in graph
+                #     continue
+                # else:
+                #     # pred_rel[obj_idx] = indices
+                #     # using names...
+                if 13 in indices: 
+                    indices.remove(13)
+                if len(indices):
+                    pred_rel[get_obj_name(obj_idx)] = [get_rel_name(r_i) for r_i in indices]
+
+            # obj-rel GT
+            _gt_rel = batch_gt_rel[
+                i]  # [num_objs, num_rels+1] - 0/1 elements - there can be multiple 1 at each num_objs row
+            gt_rel = {}  # key is object index - values are obj-verb relationships
+            for obj_idx in range(_gt_rel.size(0)):
+                # Get indices where tensor elements are greater than the threshold
+                indices = torch.where(_gt_rel[obj_idx] > threshold)[0].tolist()
+                if no_obj_rel in indices:  # if len(indices) == 1 and indices[0] == no_obj_rel:
+                    # object not present in graph
+                    continue
+                else:
+                    # gt_rel[obj_idx] = indices
+                    # using names....
+                    gt_rel[get_obj_name(obj_idx)] = [get_rel_name(r_i) for r_i in indices]
+
+            print("-" * 30)
+            print(f"Item [{count}]-th: ")
+            print(f"[PRED] VERB: {get_verb_name(verb_pred)}")
+            print(f"[PRED] OBJ-VERB_REL: {pred_rel}\n")
+            print(f"[GT] VERB: {get_verb_name(verb_gt)}")
+            print(f"[GT] OBJ-VERB_REL: {gt_rel}")
+            print("-" * 30)
 
 
 def main():
@@ -237,7 +328,7 @@ def main():
         assert args.resume is not None, "eval mode but checkpoint has not been specified"
         model_weights = torch.load(args.resume)['model_state_dict']
         print("Load model weights:\n", model.load_state_dict(model_weights))
-        eval(dataloader=val_loader, model=model, device=device, opt=args)
+        eval(dataloader=train_loader, model=model, device=device, opt=args)
         sys.exit(0)
 
     if args.scheduler_type == 'cosine_annealing':

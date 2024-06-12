@@ -203,8 +203,11 @@ class EASGDatasetAE(Dataset):
         return self.verbs[cat_value]
 
     def get_rel_name(self, cat_value):
+        # try:
+        #     return self.rels[cat_value]
+        # except Exception as e:
+        #     return 'not-existing-rel'
         return self.rels[cat_value]
-
         
     def get_object_indices(self, idx):
         data_dict = self.graphs[idx]
