@@ -93,9 +93,11 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
         
         # average loss for the epoch
         average_loss = total_loss / count   # correct with batch_size = 1
+        dump_output = False
         if num_epochs >= 20:
             if epoch%10 == 0:
-                recalls = evaluation(validation_dataset, model, device)
+                if epoch+1==num_epochs: dump_output=True
+                recalls = evaluation(validation_dataset, model, device, dump_output)
                 recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = recalls
                 recalls_dict = {
                     'recall_predcls_with': recall_predcls_with,
