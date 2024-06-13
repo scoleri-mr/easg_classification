@@ -184,7 +184,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     history_rels = []
     history_kld = []
 
-    log_filename = f'log_vae_{opt.kld_type}_b={opt.beta}_ld={opt.output_dim}_lr={opt.lr_start}'
+    log_filename = f'log_vae_{opt.kld_type}_b={opt.beta}_ld={opt.output_dim}_lr={opt.lr_start}_fl={opt.focal_loss}'
     log_file_path = os.path.join('./experiments', log_filename)
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
     logging.basicConfig(format='%(asctime)s.%(msecs)03d %(message)s',
@@ -223,7 +223,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             if epoch+1==opt.num_epochs: # if I'm in the last epoch, save the verb predictions
                 dump_output = True
             else: dump_output = False
-            acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device, k_list_verbs=[1,2,5,10,20], dump_output=dump_output)
+            acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device, k_list_verbs=[1,2,5,10,20], dump_output=dump_output, opt=opt)
             acc_verb_t, balacc_verb_t, topk_acc_verb_t, topk_acc_rels_t = evaluation(model, train_loader, device, k_list_verbs = [1,2,5,10,20])
             local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch+1, [1,2,5,10,20])
 
@@ -294,7 +294,7 @@ def local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, e
     logger.info(f"topk rels accuracy {list_k}: {topk_acc_rels[list_k[0]].item():.4f}, {topk_acc_rels[list_k[1]].item():.4f}, {topk_acc_rels[list_k[2]].item():.4f}, {topk_acc_rels[list_k[3]].item():.4f}")
     logger.info("\n")
 
-def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels = [1,2,5,10], dump_output=False):
+def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels = [1,2,5,10], dump_output=False, opt=None):
     model = model.eval()
     list_logits_verb, list_gt_verb = [], []
     list_logits_rel, list_gt_rels = [], []
@@ -315,7 +315,7 @@ def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels
         list_gt_rels.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
 
     if dump_output:
-        with open('vae_verb_output', 'wb') as fp:
+        with open(f'models_outputs/vae_verb_output_{opt.kld_type}_b={opt.beta}_ld={opt.output_dim}_lr={opt.lr_start}_fl={opt.focal_loss}', 'wb') as fp:
             pickle.dump(verbs_predictions,fp)
     # VERB ACCURACIES
     # total verb accuracy and balanced verb accuracy 

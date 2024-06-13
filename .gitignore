@@ -31,3 +31,4 @@ vae_verb_output_ce
 vae_verb_output_fl
 mlp_verb_output
 output_mlp
+models_outputs
