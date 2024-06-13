@@ -223,8 +223,8 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch+1, [1,2,5,10,20])
 
             if opt.wandb: 
-                wandb.log({"epoch": epoch, "acc_verb": acc_verb, "balacc_verb": balacc_verb, "topk_acc_verb":topk_acc_verb, "topk_acc_rels":topk_acc_rels,
-                           "acc_verb_train": acc_verb_t, "balacc_verb_train": balacc_verb_t})
+                wandb.log({"epoch": epoch, "acc_verb_val": acc_verb, "balacc_verb_val": balacc_verb, "topk_acc_verb_val":topk_acc_verb, "topk_acc_rels_val":topk_acc_rels,
+                        "acc_verb_train": acc_verb_t, "balacc_verb_train": balacc_verb_t})
             
             # recap excel file
             if epoch+1==opt.num_epochs:
