@@ -210,8 +210,11 @@ class EASGvae(nn.Module):
         self.fc_logvar = nn.Linear(output_dim, output_dim)
         self.decoder = EASGDecoder(num_rels, num_verbs, num_objs, 
                                    output_dim, hidden_dim, dropout_prob)
-        self.focal_loss = FocalLoss()
+        self.focal_loss = MultiClassFocalLoss()
         self.use_focal_loss = use_focal_loss
+
+        if self.use_focal_loss:
+            print("Using focal loss...")
 
     def forward(self, batch):
         _, graphs_latents = self.encoder(batch)
@@ -266,6 +269,32 @@ class FocalLoss(nn.Module):
         ce_loss = F.cross_entropy(inputs, targets, reduction='none')
         pt = torch.exp(-ce_loss)
         focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
+
+class MultiClassFocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, reduction='mean'):
+        super(MultiClassFocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        logpt = F.log_softmax(inputs, dim=-1)
+        logpt = logpt.gather(1, targets.view(-1, 1))
+        logpt = logpt.view(-1)
+        pt = logpt.exp()
+
+        focal_loss = -((1 - pt) ** self.gamma) * logpt
+
+        if self.alpha >= 0:
+            alpha_t = self.alpha * targets.float() + (1 - self.alpha) * (1 - targets.float())
+            focal_loss = alpha_t * focal_loss
 
         if self.reduction == 'mean':
             return focal_loss.mean()

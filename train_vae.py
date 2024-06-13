@@ -20,6 +20,7 @@ import time
 from sklearn.metrics import accuracy_score, balanced_accuracy_score
 import logging
 from torch.utils.data import Subset
+import pickle
 
 """"
 example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epochs200 --num_epochs 200
@@ -218,7 +219,11 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             # EVALUATION
             if opt.check_overfitting:
                 val_loader = train_loader
-            acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device, k_list_verbs=[1,2,5,10,20])
+            
+            if epoch+1==opt.num_epochs: # if I'm in the last epoch, save the verb predictions
+                dump_output = True
+            else: dump_output = False
+            acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device, k_list_verbs=[1,2,5,10,20], dump_output=dump_output)
             acc_verb_t, balacc_verb_t, topk_acc_verb_t, topk_acc_rels_t = evaluation(model, train_loader, device, k_list_verbs = [1,2,5,10,20])
             local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch+1, [1,2,5,10,20])
 
@@ -289,7 +294,7 @@ def local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, e
     logger.info(f"topk rels accuracy {list_k}: {topk_acc_rels[list_k[0]].item():.4f}, {topk_acc_rels[list_k[1]].item():.4f}, {topk_acc_rels[list_k[2]].item():.4f}, {topk_acc_rels[list_k[3]].item():.4f}")
     logger.info("\n")
 
-def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels = [1,2,5,10]):
+def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels = [1,2,5,10], dump_output=False):
     model = model.eval()
     list_logits_verb, list_gt_verb = [], []
     list_logits_rel, list_gt_rels = [], []
@@ -300,6 +305,7 @@ def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels
         verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
         rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
         out_verb, out_rel, _, _ = model(batch)
+
         out_rel = out_rel.contiguous().view(-1, rel_gt.size(1), 14)
         # store val batch results for computing global accuracy and balanced accuracy
         list_logits_verb.append(out_verb.cpu().detach())
@@ -307,6 +313,9 @@ def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels
         list_gt_verb.append(verb_gt.cpu().detach())
         list_gt_rels.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
 
+        if dump_output:
+            with open('vae_verb_output', 'wb') as fp:
+                pickle.dump(out_verb,fp)
     # VERB ACCURACIES
     # total verb accuracy and balanced verb accuracy 
     list_logits_verb = torch.cat(list_logits_verb, dim=0)
@@ -386,7 +395,8 @@ def main():
                     args.output_dim,
                     args.kld_type,
                     args.dropout_prob,
-                    args.graph_type
+                    args.graph_type,
+                    args.focal_loss
                     )
     optimizer = Adam(model.parameters(), lr=args.lr_start)
     
