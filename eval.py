@@ -186,7 +186,7 @@ def evaluation(dataset_val, model, device, dump_output=False):
         recall_easgcls_no[k] = sum(recall_easgcls_no[k]) / len(recall_easgcls_no[k])*100
 
     if dump_output:
-        with open('mlp_verb_output', 'wb') as fp:
+        with open('easg_verb_output', 'wb') as fp:
             pickle.dump(verbs_predictions,fp)
     
     return recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no

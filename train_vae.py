@@ -298,6 +298,7 @@ def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels
     model = model.eval()
     list_logits_verb, list_gt_verb = [], []
     list_logits_rel, list_gt_rels = [], []
+    verbs_predictions = []
 
     for _data in val_loader:
         batch, verb_gt, rel_gt = _data
@@ -305,7 +306,7 @@ def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels
         verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
         rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
         out_verb, out_rel, _, _ = model(batch)
-
+        verbs_predictions.append(out_verb)
         out_rel = out_rel.contiguous().view(-1, rel_gt.size(1), 14)
         # store val batch results for computing global accuracy and balanced accuracy
         list_logits_verb.append(out_verb.cpu().detach())
@@ -313,9 +314,9 @@ def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels
         list_gt_verb.append(verb_gt.cpu().detach())
         list_gt_rels.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
 
-        if dump_output:
-            with open('vae_verb_output', 'wb') as fp:
-                pickle.dump(out_verb,fp)
+    if dump_output:
+        with open('vae_verb_output', 'wb') as fp:
+            pickle.dump(verbs_predictions,fp)
     # VERB ACCURACIES
     # total verb accuracy and balanced verb accuracy 
     list_logits_verb = torch.cat(list_logits_verb, dim=0)
