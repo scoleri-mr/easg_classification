@@ -49,6 +49,8 @@ def parse_args():
     parser.add_argument('--resume', type=str, default=None, help='checkpoint to resume')
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--check_overfitting', action='store_true', help="If specified takes a random subset of the training set to check overfitting capabilities of the model")
+    parser.add_argument('--focal_loss', action='store_true', help="If specified use focal loss to balance verb classes")
+    parser.add_argument('--wandb_proj', type=str, default='vae_easg')
     args = parser.parse_args()
     return args
 
@@ -166,7 +168,7 @@ def weight_beta(num_epochs, beta):
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
-        opt.exp_name = f"VAE_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_{str(int(time.time()))}"
+        opt.exp_name = f"VAE_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_lr={opt.lr_start}_{str(int(time.time()))}"
     print(f"Training - exp name: {opt.exp_name}")        
         
     model = model.to(device)
@@ -174,7 +176,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     w = weight_beta(opt.num_epochs, opt.beta)
 
     if opt.wandb:
-        wandb.init(project=f'vae_easg', config=opt, name=opt.exp_name)
+        wandb.init(project=f'{opt.wandb_proj}', config=opt, name=opt.exp_name)
         wandb.watch(model, log="all")        
 
     history_verb = []
@@ -212,15 +214,17 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 if opt.wandb: wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "kdl":kld, "current_lr": current_lr})                 
         scheduler.step()
         
-        if (epoch+1) % 10 == 0 or epoch == 0:
+        if (epoch+1) % 5 == 0 or epoch == 0:
             # EVALUATION
             if opt.check_overfitting:
                 val_loader = train_loader
-            acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device)
-            local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch+1, [1,2,5,10])
+            acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device, k_list_verbs=[1,2,5,10,20])
+            acc_verb_t, balacc_verb_t, topk_acc_verb_t, topk_acc_rels_t = evaluation(model, train_loader, device, k_list_verbs = [1,2,5,10,20])
+            local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch+1, [1,2,5,10,20])
 
             if opt.wandb: 
-                wandb.log({"epoch": epoch, "acc_verb": acc_verb, "balacc_verb": balacc_verb, "topk_acc_verb":topk_acc_verb, "topk_acc_rels":topk_acc_rels})
+                wandb.log({"epoch": epoch, "acc_verb": acc_verb, "balacc_verb": balacc_verb, "topk_acc_verb":topk_acc_verb, "topk_acc_rels":topk_acc_rels,
+                           "acc_verb_train": acc_verb_t, "balacc_verb_train": balacc_verb_t})
             
             # recap excel file
             if epoch+1==opt.num_epochs:
@@ -233,7 +237,8 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
 
     plot_losses(history_verb, history_rels, history_kld, opt)
     if opt.wandb: 
-        wandb.log({"epoch": epoch, "acc_verb": acc_verb, "balacc_verb": balacc_verb, "topk_acc_verb":topk_acc_verb, "topk_acc_rels":topk_acc_rels})
+        wandb.log({"epoch": epoch, "acc_verb_val": acc_verb, "balacc_verb_val": balacc_verb, "topk_acc_verb_val":topk_acc_verb, "topk_acc_rels_val":topk_acc_rels,
+                   "acc_verb_train": acc_verb_t, "balacc_verb_train": balacc_verb_t})
 
     if opt.wandb:
         wandb.finish()
@@ -284,7 +289,7 @@ def local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, e
     logger.info(f"topk rels accuracy {list_k}: {topk_acc_rels[list_k[0]].item():.4f}, {topk_acc_rels[list_k[1]].item():.4f}, {topk_acc_rels[list_k[2]].item():.4f}, {topk_acc_rels[list_k[3]].item():.4f}")
     logger.info("\n")
 
-def evaluation(model, val_loader, device, k_list = [1,2,5,10]):
+def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels = [1,2,5,10]):
     model = model.eval()
     list_logits_verb, list_gt_verb = [], []
     list_logits_rel, list_gt_rels = [], []
@@ -310,24 +315,24 @@ def evaluation(model, val_loader, device, k_list = [1,2,5,10]):
     acc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
     balacc_verb = balanced_accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
     # topk verb accuracy
-    topk_acc_verb = topk_accuracy(output=list_logits_verb, target=list_gt_verb, topk=k_list)
-    topk_acc_verb = dict(zip(k_list, topk_acc_verb))
+    topk_acc_verb = topk_accuracy(output=list_logits_verb, target=list_gt_verb, topk=k_list_verbs)
+    topk_acc_verb = dict(zip(k_list_verbs, topk_acc_verb))
 
     # RELATIONSHIP ACCURACIES:
     # only the topk accuracy makes sense here since we can have more than one relationship
     list_logits_rels = torch.cat(list_logits_rel, dim=0).view(-1, 14)  # [total_instances, 14]
     list_gt_rels = torch.cat(list_gt_rels, dim=0)  # [total_instances]
-    relationship_accuracies = {k: [] for k in k_list}
-    topk_acc_rels = {k: [] for k in k_list}
+    relationship_accuracies = {k: [] for k in k_list_rels}
+    topk_acc_rels = {k: [] for k in k_list_rels}
     for i in range(list_logits_rels.shape[0]):
         gt_relations = list_gt_rels[i]
         if gt_relations != 13:  # Exclude the 13th relationship
-            for k in k_list:
+            for k in k_list_rels:
                 topk_predictions = torch.topk(list_logits_rels[i, :-1], k, dim=0).indices
                 correct = (topk_predictions == gt_relations).any().item()
                 relationship_accuracies[k].append(correct)
 
-    for k in k_list:
+    for k in k_list_rels:
         topk_acc_rels[k] = np.mean(relationship_accuracies[k])
 
     return acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels

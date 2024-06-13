@@ -200,7 +200,7 @@ class EASGvae(nn.Module):
     def __init__(   self, object_feats_dim, verb_feats_dim, 
                     num_rels, num_verbs, num_objs, 
                     hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-                    kld_type, dropout_prob=0.2, graph_type='gat'):
+                    kld_type, dropout_prob=0.2, graph_type='gat', use_focal_loss=False):
         super(EASGvae, self).__init__()
         self.kld_type = kld_type
         self.encoder = EASGEncoder(object_feats_dim, verb_feats_dim, 
@@ -210,6 +210,8 @@ class EASGvae(nn.Module):
         self.fc_logvar = nn.Linear(output_dim, output_dim)
         self.decoder = EASGDecoder(num_rels, num_verbs, num_objs, 
                                    output_dim, hidden_dim, dropout_prob)
+        self.focal_loss = FocalLoss()
+        self.use_focal_loss = use_focal_loss
 
     def forward(self, batch):
         _, graphs_latents = self.encoder(batch)
@@ -222,7 +224,10 @@ class EASGvae(nn.Module):
     #### the loss function in neural graph generator repeats parts of the forward, I removed those parts
     #### with respect to a traditional VAE instead of having an l1 type loss we use a CE and BCE that are summed to the kld
     def loss_functions(self, verb_gt, rels_gt, verb_logits, relationship_logits, mu, logvar):
-        loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
+        if self.use_focal_loss:
+            loss_verb = self.focal_loss(verb_logits, verb_gt)
+        else:
+            loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
         loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)
         if self.kld_type == 'original': # performs kld summing all together for the batch
             kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
@@ -250,4 +255,22 @@ class EASGvae(nn.Module):
        adj = self.decoder(x_g)
        return adj
 
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
     

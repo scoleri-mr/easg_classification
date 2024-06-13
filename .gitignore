@@ -23,3 +23,7 @@ autoencoder_original.py
 prova.ipynb
 eval_vae.py
 run_experiments.sh
+run_experiments_old.sh
+ae_runs.xlsx
+vae_runs.xlsx
+verb_output
