@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import torch_geometric as tg
 from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv, GINConv
 from torch_geometric.nn import global_max_pool
+from torchvision.ops.focal_loss import sigmoid_focal_loss
+
 
 class LinearProjection(nn.Module):
     def __init__(self, verb_dim, obj_dim, hidden_projection_dim, projection_dim, dropout_prob):
@@ -200,7 +202,7 @@ class EASGvae(nn.Module):
     def __init__(   self, object_feats_dim, verb_feats_dim, 
                     num_rels, num_verbs, num_objs, 
                     hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-                    kld_type, dropout_prob=0.2, graph_type='gat', use_focal_loss=False):
+                    kld_type, dropout_prob=0.2, graph_type='gcn', use_focal_loss=False):
         super(EASGvae, self).__init__()
         self.kld_type = kld_type
         self.encoder = EASGEncoder(object_feats_dim, verb_feats_dim, 
@@ -210,7 +212,7 @@ class EASGvae(nn.Module):
         self.fc_logvar = nn.Linear(output_dim, output_dim)
         self.decoder = EASGDecoder(num_rels, num_verbs, num_objs, 
                                    output_dim, hidden_dim, dropout_prob)
-        self.focal_loss = MultiClassFocalLoss()
+        self.focal_loss_verb = MultiClassFocalLoss()
         self.use_focal_loss = use_focal_loss
 
         if self.use_focal_loss:
@@ -228,10 +230,13 @@ class EASGvae(nn.Module):
     #### with respect to a traditional VAE instead of having an l1 type loss we use a CE and BCE that are summed to the kld
     def loss_functions(self, verb_gt, rels_gt, verb_logits, relationship_logits, mu, logvar):
         if self.use_focal_loss:
-            loss_verb = self.focal_loss(verb_logits, verb_gt)
+            loss_verb = self.focal_loss_verb(verb_logits, verb_gt)
+            out_rels = relationship_logits.contiguous().view(-1, 14)
+            rels_gt = rels_gt.view(-1, 14)
+            loss_rel = sigmoid_focal_loss(out_rels, rels_gt, reduction="mean")
         else:
             loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
-        loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)
+            loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)
         if self.kld_type == 'original': # performs kld summing all together for the batch
             kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         elif self.kld_type == 'mean':   # performs separate kld for each sample and then average them

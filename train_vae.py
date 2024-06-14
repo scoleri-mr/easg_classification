@@ -169,7 +169,7 @@ def weight_beta(num_epochs, beta):
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
-        opt.exp_name = f"VAE_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_lr={opt.lr_start}_{str(int(time.time()))}"
+        opt.exp_name = f"VAE_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_lr={opt.lr_start}_fl={opt.focal_loss}{str(int(time.time()))}"
     print(f"Training - exp name: {opt.exp_name}")        
         
     model = model.to(device)
@@ -223,22 +223,23 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             if epoch+1==opt.num_epochs: # if I'm in the last epoch, save the verb predictions
                 dump_output = True
             else: dump_output = False
-            acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device, k_list_verbs=[1,2,5,10,20], dump_output=dump_output, opt=opt)
-            acc_verb_t, balacc_verb_t, topk_acc_verb_t, topk_acc_rels_t = evaluation(model, train_loader, device, k_list_verbs = [1,2,5,10,20])
+            acc_verb, balacc_verb, acc_rel, balacc_rel, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device, k_list_verbs=[1,2,5,10,20], dump_output=dump_output, opt=opt)
+            acc_verb_t, balacc_verb_t, acc_rel_t, balacc_rel_t, topk_acc_verb_t, topk_acc_rels_t = evaluation(model, train_loader, device, k_list_verbs = [1,2,5,10,20])
             local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch+1, [1,2,5,10,20])
 
             if opt.wandb: 
                 wandb.log({"epoch": epoch, "acc_verb_val": acc_verb, "balacc_verb_val": balacc_verb, "topk_acc_verb_val":topk_acc_verb, "topk_acc_rels_val":topk_acc_rels,
-                        "acc_verb_train": acc_verb_t, "balacc_verb_train": balacc_verb_t})
+                        "acc_verb_train": acc_verb_t, "balacc_verb_train": balacc_verb_t, 
+                        'acc_rels': acc_rel, 'balacc_rels': balacc_rel, 'acc_rels_train': acc_rel_t, 'balacc_rels_train': balacc_rel_t})
             
             # recap excel file
             if epoch+1==opt.num_epochs:
                 log_run_to_excel(opt, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels)
 
             # CHECKPOINT
-            # save_dir = f"./experiments/{opt.exp_name}/checkpoints"
-            # os.makedirs(save_dir, exist_ok=True)
-            # save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
+            save_dir = f"./experiments/{opt.exp_name}/checkpoints"
+            os.makedirs(save_dir, exist_ok=True)
+            save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 
     plot_losses(history_verb, history_rels, history_kld, opt)
     if opt.wandb: 
@@ -260,6 +261,7 @@ def log_run_to_excel(opt, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, f
         'beta': str(opt.beta),
         'latent_dim': opt.output_dim,
         'epochs': opt.num_epochs,
+        'focal_loss': opt.focal_loss,
         'acc_verb': str("{:.4f}".format(acc_verb)),
         'balacc_verb': str("{:.4f}".format(balacc_verb)), 
         'top1_vacc': str("{:.4f}".format(topk_acc_verb[1].item())),
@@ -345,7 +347,13 @@ def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels
     for k in k_list_rels:
         topk_acc_rels[k] = np.mean(relationship_accuracies[k])
 
-    return acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels
+    # get a balanced accuracy for relationships as well. WARNING: this balanced accuracy does not take into
+    # account the possibility to have multiple relationship, it's just to see how the focal loss changes the results
+    list_pred_rels = torch.argmax(list_logits_rels,-1)
+    acc_rel= accuracy_score(y_true=list_gt_rels.cpu().numpy(), y_pred=list_pred_rels.cpu().numpy()), 
+    balacc_rel = balanced_accuracy_score(y_true=list_gt_rels.cpu().numpy(), y_pred=list_pred_rels.cpu().numpy())
+
+    return acc_verb, balacc_verb, acc_rel, balacc_rel, topk_acc_verb, topk_acc_rels
 
 def main():
     # get datasets
