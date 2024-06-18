@@ -47,6 +47,7 @@ def parse_args():
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--check_overfitting', action='store_true', help="If specified takes a random subset of the training set to check overfitting capabilities of the model")
     parser.add_argument('--focal_loss', action='store_true', help="If specified use focal loss to balance verb classes")
+    parser.add_argument('--exclude_verbs', action='store_true', help="If specified exclude verbs from training, use to focus on relationships")
     parser.add_argument('--wandb_proj', type=str, default='vae_easg')
     args = parser.parse_args()
     return args
@@ -189,7 +190,12 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             loss_verb, loss_rel = model.loss_functions_ae(verb_gt, rel_gt, out_verb, out_rel)
             history_verb.append(loss_verb.item())
             history_rels.append(loss_rel.item())
-            loss = loss_verb + loss_rel
+            if opt.exclude_verbs:
+                if epoch==0:
+                    print('Excluding verbs from training...')
+                loss = loss_rel
+            else:
+                loss = loss_verb + loss_rel
             loss.backward()
             optimizer.step()
             if bidx % 10 == 0:
