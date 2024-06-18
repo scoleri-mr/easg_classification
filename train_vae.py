@@ -193,7 +193,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                         level=logging.DEBUG,
                         handlers=[logging.StreamHandler(), logging.FileHandler(filename=log_file_path, mode='w')],
                         )
-
+    count=0
     for epoch in range(opt.num_epochs):
         model.train()
         for bidx, _data in tqdm(enumerate(train_loader, 0), unit="batch", total=len(train_loader)):
@@ -206,7 +206,8 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             loss_verb, loss_rel, kld = model.loss_functions(verb_gt, rel_gt, verb_logits, relationship_logits, mu, logvar)
             loss = loss_verb + loss_rel + opt.beta*kld*w[epoch]
             if opt.exclude_verbs:
-                if epoch==0:
+                if count==0:
+                    count=1
                     print('Excluding verbs from training...')                
                 loss = loss_rel + opt.beta*kld*w[epoch]
             else:

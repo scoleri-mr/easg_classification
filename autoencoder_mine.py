@@ -190,6 +190,9 @@ class EASGAutoEncoder(nn.Module):
                                     output_dim, output_dim*2, dropout_prob)
         self.focal_loss_verb = MultiClassFocalLoss()
         self.use_focal_loss = use_focal_loss
+
+        if self.use_focal_loss:
+            print("Using ae with focal loss...")        
         
     def forward(self, batch):
         # encode 
@@ -228,7 +231,7 @@ class EASGvae(nn.Module):
         self.use_focal_loss = use_focal_loss
 
         if self.use_focal_loss:
-            print("Using focal loss...")
+            print("Using vae with focal loss...")
 
     def forward(self, batch):
         _, graphs_latents = self.encoder(batch)
