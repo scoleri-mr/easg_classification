@@ -23,9 +23,34 @@ from torch.utils.data import Subset
 
 """"
 example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epochs200 --num_epochs 200
-- TODO: relazioni sono sbilanciate, ce n'è una (la non presenza dell'oggetto che è predominante) - valutare alternativa
-- TODO: autodecoder logic?
 """
+def parse_args():
+    parser = ArgumentParser()
+    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--val_batch_size', type=int, default=64)
+    parser.add_argument('--ann_path', type=str, default='./annts_in_new_format/', help='path to annotations')
+    parser.add_argument('--data_path', type=str, default='./data/', help='path to ROI and clip features')
+    parser.add_argument('--num_epochs', type=int, default=100, help='total number of epochs')
+    parser.add_argument('--hidden_proj_dim', type=int, default=1024, help='hidden dimension for linear projection')
+    parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
+    parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
+    parser.add_argument('--output_dim', type=int, default=512, help='output dimension of the gnn')
+    parser.add_argument('--scheduler_type', type=str, default='cosine_annealing', help='choose between step, cosine_annealing and fixed')
+    parser.add_argument('--lr_start', type=float, default=0.0001, help='starting learning rate')
+    parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')
+    parser.add_argument('--lr_step_size', type=int, default=20, help='step size for scheduler')
+    parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
+    parser.add_argument('--wandb', action='store_true', help="If specified enables wandb logging")
+    parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat, gin')
+    parser.add_argument('--exp_name', type=str, default=None, help='experiment name')
+    parser.add_argument('--resume', type=str, default=None, help='checkpoint to resume')
+    parser.add_argument('--eval', action='store_true')
+    parser.add_argument('--check_overfitting', action='store_true', help="If specified takes a random subset of the training set to check overfitting capabilities of the model")
+    parser.add_argument('--focal_loss', action='store_true', help="If specified use focal loss to balance verb classes")
+    parser.add_argument('--wandb_proj', type=str, default='vae_easg')
+    args = parser.parse_args()
+    return args
+
 def plot_losses(loss_verb, loss_rels, opt):
     import matplotlib.pyplot as plt
     # Create a figure and axis objects for subplots
@@ -48,47 +73,6 @@ def plot_losses(loss_verb, loss_rels, opt):
     plt.tight_layout()
     plt.savefig(f'plots/losses_ae_{opt.output_dim}_lr={opt.lr_start}.png')
     plt.show()
-
-def parse_args():
-    parser = ArgumentParser()
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--val_batch_size', type=int, default=64)
-    parser.add_argument('--ann_path', type=str,
-                        default='./annts_in_new_format/', help='path to annotations')
-    parser.add_argument('--data_path', type=str,
-                        default='./data/', help='path to ROI and clip features')
-    parser.add_argument('--num_epochs', type=int,
-                        default=100, help='total number of epochs')
-    parser.add_argument('--hidden_proj_dim', type=int, default=1024,
-                        help='hidden dimension for linear projection')
-    parser.add_argument('--proj_dim', type=int, default=512,
-                        help='final dimension of verb and objects after linear projection')
-    parser.add_argument('--hidden_dim', type=int, default=512,
-                        help='hidden dimension for the gnn')
-    parser.add_argument('--output_dim', type=int, default=512,
-                        help='output dimension of the gnn')
-    parser.add_argument('--scheduler_type', type=str, default='cosine_annealing',
-                        help='choose between step, cosine_annealing and fixed')
-    parser.add_argument('--lr_start', type=float,
-                        default=0.0001, help='starting learning rate')
-    parser.add_argument('--lr_gamma', type=int, default=0.5,
-                        help='gamma parameter for lr scheduler')
-    parser.add_argument('--lr_step_size', type=int,
-                        default=20, help='step size for scheduler')
-    parser.add_argument('--dropout_prob', type=float,
-                        default=0.2, help='dropout probability for gnn layers')
-    parser.add_argument('--wandb', action='store_true', help="If specified enables wandb logging")
-    parser.add_argument('--graph_type', type=str, default='gcn',
-                        help='choose between graph layers: gcn, sage, gat, gin')
-    parser.add_argument('--exp_name', type=str, default=None,
-                        help='experiment name')
-    parser.add_argument('--resume', type=str, default=None,
-                        help='checkpoint to resume')
-    parser.add_argument('--eval', action='store_true')
-    parser.add_argument('--check_overfitting', action='store_true', help="If specified takes a random subset of the training set to check overfitting capabilities of the model")
-    args = parser.parse_args()
-    return args
-
 
 def topk_accuracy(output: torch.Tensor, target: torch.Tensor, topk=(1,)):
     """
@@ -146,7 +130,6 @@ def topk_accuracy(output: torch.Tensor, target: torch.Tensor, topk=(1,)):
             list_topk_accs.append(topk_acc)
         return list_topk_accs  # list of topk accuracies for entire batch [topk1, topk2, ... etc]
 
-
 def save_checkpoint(model, optimizer, epoch, path):
     """
     Saves a checkpoint of the model and optimizer states, along with training metadata.
@@ -168,13 +151,19 @@ def save_checkpoint(model, optimizer, epoch, path):
     torch.save(checkpoint, path)
     print(f'Checkpoint saved to {path}')
 
-
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
         # opt.exp_name = f"AE_{str(int(time.time()))}"
-        opt.exp_name = f"AE_od={opt.output_dim}_{str(int(time.time()))}"
+        opt.exp_name = f"AE_od={opt.output_dim}_lr={opt.lr_start}_fl={opt.focal_loss}_{str(int(time.time()))}"
     print(f"Training - exp name: {opt.exp_name}")  
-        
+    
+    model = model.to(device)
+    logger = logging.getLogger()
+
+    if opt.wandb:
+        wandb.init(project=f'ae_easg', config=opt, name=opt.exp_name)
+        wandb.watch(model, log="all")
+
     history_verb = []
     history_rels = []
 
@@ -186,13 +175,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                         level=logging.DEBUG,
                         handlers=[logging.StreamHandler(), logging.FileHandler(filename=log_file_path, mode='w')],
                         )
-    logger = logging.getLogger()
 
-    model = model.to(device)
-    if opt.wandb:
-        wandb.init(project=f'ae_easg', config=opt, name=opt.exp_name)
-        wandb.watch(model, log="all")        
-        
     for epoch in range(opt.num_epochs):
         model.train()
         for bidx, _data in tqdm(enumerate(train_loader, 0), unit="batch", total=len(train_loader)):
@@ -200,17 +183,10 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             bs = len(batch)
             batch = batch.to(device)
             verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
-            # TODO: num_rels+1 is managed at the dataset level
             rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
             optimizer.zero_grad()
             out_verb, out_rel = model(batch)
-            loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
-            out_rel = out_rel.contiguous().view(-1, 14) 
-            rel_gt = rel_gt.view(-1, 14)
-            # rel_gt = rel_gt.argmax(-1).view(-1)
-            # loss_rel = F.cross_entropy(input=out_rel, target=rel_gt)
-            # TODO: moved from Cross-Entropy to BCE for multiple relation prediction at each object
-            loss_rel = F.binary_cross_entropy_with_logits(input=out_rel, target=rel_gt)
+            loss_verb, loss_rel = model.loss_functions_ae(verb_gt, rel_gt, out_verb, out_rel)
             history_verb.append(loss_verb.item())
             history_rels.append(loss_rel.item())
             loss = loss_verb + loss_rel
@@ -223,22 +199,25 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                     
         scheduler.step()
         
-        if (epoch+1) % 10 == 0 or epoch==0:
+        if (epoch+1) % 5 == 0 or epoch==0:
             # EVALUATION
-            acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device)
-            local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch+1, [1,2,5,10])
+            acc_verb, balacc_verb, acc_rel, balacc_rel, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device, k_list_verbs=[1,2,5,10,20])
+            acc_verb_t, balacc_verb_t, acc_rel_t, balacc_rel_t, topk_acc_verb_t, topk_acc_rels_t = evaluation(model, train_loader, device, k_list_verbs = [1,2,5,10,20])
+            local_logging(logger, acc_verb, balacc_verb, acc_verb_t, balacc_verb_t, topk_acc_verb, topk_acc_rels, topk_acc_verb_t, topk_acc_rels_t, epoch+1, [1,2,5,10])
             
             if opt.wandb: 
-                wandb.log({"epoch": epoch, "acc_verb": acc_verb, "balacc_verb": balacc_verb, "topk_acc_verb":topk_acc_verb, "topk_acc_rels":topk_acc_rels})
+                wandb.log({"epoch": epoch, "acc_verb_val": acc_verb, "balacc_verb_val": balacc_verb, "topk_acc_verb_val":topk_acc_verb, "topk_acc_rels_val":topk_acc_rels,
+                        "acc_verb_train": acc_verb_t, "balacc_verb_train": balacc_verb_t, 
+                        'acc_rels': acc_rel, 'balacc_rels': balacc_rel, 'acc_rels_train': acc_rel_t, 'balacc_rels_train': balacc_rel_t})
 
             # recap excel file
             if epoch+1==opt.num_epochs:
                 log_run_to_excel(opt, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels)
 
             # CHECKPOINT
-            # save_dir = f"./experiments/{opt.exp_name}/checkpoints"
-            # os.makedirs(save_dir, exist_ok=True)
-            # save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
+            save_dir = f"./experiments/{opt.exp_name}/checkpoints"
+            os.makedirs(save_dir, exist_ok=True)
+            save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 
     plot_losses(history_verb, history_rels, opt)
 
@@ -282,14 +261,17 @@ def log_run_to_excel(opt, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, f
     # Save DataFrame to Excel file
     df.to_excel(file_path, index=False)
 
-def local_logging(logger, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, epoch, list_k):
+def local_logging(logger, acc_verb, balacc_verb, acc_verb_train, balacc_verb_train, topk_acc_verb, topk_acc_rels, topk_acc_verb_train, topk_acc_rels_train, epoch, list_k):
     logger.info(f"VALIDATION EPOCH {epoch}:")
     logger.info(f"acc_verb: {acc_verb}, balacc_verb: {balacc_verb}")
+    logger.info(f"acc_verb_train: {acc_verb_train}, balacc_verb_train: {balacc_verb_train}")
     logger.info(f"topk verb accuracy {list_k}: {topk_acc_verb[list_k[0]].item():.4f}, {topk_acc_verb[list_k[1]].item():.4f}, {topk_acc_verb[list_k[2]].item():.4f}, {topk_acc_verb[list_k[3]].item():.4f}")
     logger.info(f"topk rels accuracy {list_k}: {topk_acc_rels[list_k[0]].item():.4f}, {topk_acc_rels[list_k[1]].item():.4f}, {topk_acc_rels[list_k[2]].item():.4f}, {topk_acc_rels[list_k[3]].item():.4f}")
+    logger.info(f"topk verb accuracy train {list_k}: {topk_acc_verb_train[list_k[0]].item():.4f}, {topk_acc_verb_train[list_k[1]].item():.4f}, {topk_acc_verb_train[list_k[2]].item():.4f}, {topk_acc_verb_train[list_k[3]].item():.4f}")
+    logger.info(f"topk rels accuracy train{list_k}: {topk_acc_rels_train[list_k[0]].item():.4f}, {topk_acc_rels_train[list_k[1]].item():.4f}, {topk_acc_rels_train[list_k[2]].item():.4f}, {topk_acc_rels_train[list_k[3]].item():.4f}")
     logger.info("\n")
 
-def evaluation(model, val_loader, device, k_list = [1,2,5,10]):
+def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels = [1,2,5,10]):
     model = model.eval()
     list_logits_verb, list_gt_verb = [], []
     list_logits_rel, list_gt_rels = [], []
@@ -315,79 +297,33 @@ def evaluation(model, val_loader, device, k_list = [1,2,5,10]):
     acc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
     balacc_verb = balanced_accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
     # topk verb accuracy
-    topk_acc_verb = topk_accuracy(output=list_logits_verb, target=list_gt_verb, topk=k_list)
-    topk_acc_verb = dict(zip(k_list, topk_acc_verb))
+    topk_acc_verb = topk_accuracy(output=list_logits_verb, target=list_gt_verb, topk=k_list_verbs)
+    topk_acc_verb = dict(zip(k_list_verbs, topk_acc_verb))
 
     # RELATIONSHIP ACCURACIES:
     # only the topk accuracy makes sense here since we can have more than one relationship
     list_logits_rels = torch.cat(list_logits_rel, dim=0).view(-1, 14)  # [total_instances, 14]
     list_gt_rels = torch.cat(list_gt_rels, dim=0)  # [total_instances]
-    relationship_accuracies = {k: [] for k in k_list}
-    topk_acc_rels = {k: [] for k in k_list}
+    relationship_accuracies = {k: [] for k in k_list_rels}
+    topk_acc_rels = {k: [] for k in k_list_rels}
     for i in range(list_logits_rels.shape[0]):
         gt_relations = list_gt_rels[i]
         if gt_relations != 13:  # Exclude the 13th relationship
-            for k in k_list:
+            for k in k_list_rels:
                 topk_predictions = torch.topk(list_logits_rels[i, :-1], k, dim=0).indices
                 correct = (topk_predictions == gt_relations).any().item()
                 relationship_accuracies[k].append(correct)
 
-    for k in k_list:
+    for k in k_list_rels:
         topk_acc_rels[k] = np.mean(relationship_accuracies[k])
 
-    return acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels
+    # get a balanced accuracy for relationships as well. WARNING: this balanced accuracy does not take into
+    # account the possibility to have multiple relationship, it's just to see how the focal loss changes the results
+    list_pred_rels = torch.argmax(list_logits_rels,-1)
+    acc_rel= accuracy_score(y_true=list_gt_rels.cpu().numpy(), y_pred=list_pred_rels.cpu().numpy()).item()
+    balacc_rel = balanced_accuracy_score(y_true=list_gt_rels.cpu().numpy(), y_pred=list_pred_rels.cpu().numpy())
 
-def local_logging_old(logger, epoch, acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk):
-    logger.info(f'EPOCH {epoch}')
-    logger.info(f'VALIDATION: verb_acc={acc_verb}, verb_balAcc={balacc_verb}, rel_acc:{acc_rel}, rel_balAcc:{balacc_verb} ')
-    logger.info(f'topk verb accuracy [1,2,5,10]: {verb_acc_topk[0].item():.4f}, {verb_acc_topk[1].item():.4f}, {verb_acc_topk[2].item():.4f}, {verb_acc_topk[3].item():.4f}')
-    logger.info(f'topk rel accuracy [1,2,5,10]: {rel_acc_topk[0].item():.4f}, {rel_acc_topk[1].item():.4f}, {rel_acc_topk[2].item():.4f}, {rel_acc_topk[3].item():.4f}')
-    logger.info('\n')
-
-def evaluation_old(model, val_loader, device, epoch):
-    model = model.eval()
-    list_logits_verb, list_gt_verb = [], []
-    list_logits_rel, list_gt_rel = [], []
-    for bidx, _data in tqdm(enumerate(val_loader, 0), unit="batch", total=len(val_loader), desc="Validation"):
-        batch, verb_gt, rel_gt = _data
-        batch = batch.to(device)
-        verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
-        rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
-        out_verb, out_rel = model(batch)
-        loss_verb = F.cross_entropy(input=out_verb, target=verb_gt)
-        out_rel = out_rel.contiguous().view(-1, 14)
-        # store val batch results for computing global accuracy and balanced accuracy
-        list_logits_verb.append(out_verb.cpu().detach())
-        list_logits_rel.append(out_rel.cpu().detach())
-        list_gt_verb.append(verb_gt.cpu().detach())
-        list_gt_rel.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
-    
-    list_logits_verb = torch.cat(list_logits_verb, dim=0)
-    list_pred_verb = torch.argmax(list_logits_verb, -1)
-    list_logits_rel = torch.cat(list_logits_rel, dim=0)
-    list_pred_rel = torch.argmax(list_logits_rel, -1)  # TODO: this does not address multiple verb-obj relationships!
-    list_gt_verb = torch.cat(list_gt_verb, dim=0)
-    list_gt_rel = torch.cat(list_gt_rel, dim=0)
-    
-    # TODO: during training the accuracy of realtions is not 100% correct - we consider only one relation at maximum for each object!
-    # compute accuracy
-    acc_verb, balacc_verb = accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_verb.cpu().numpy(), y_pred=list_pred_verb.cpu().numpy())
-    acc_rel, balacc_rel = accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy()), balanced_accuracy_score(y_true=list_gt_rel.cpu().numpy(), y_pred=list_pred_rel.cpu().numpy())
-    print(f"Validation epoch {epoch}, acc_verb: {acc_verb:.4f}, balAcc_verb: {balacc_verb:.4f}, acc_rel: {acc_rel:.4f}, balAcc_rel: {balacc_rel:.4f}")
-    
-    # top-k acc
-    ks = [1,2,5,10]
-    verb_acc_topk = topk_accuracy(output=list_logits_verb, target=list_gt_verb, topk=ks)
-    rel_acc_topk = topk_accuracy(output=list_logits_rel, target=list_gt_rel, topk=ks)
-    print(f"\nVerb accuracy:")
-    for i in range(len(ks)):
-        print(f"top-{ks[i]} accuracy: {verb_acc_topk[i]}")
-        
-    print(f"\nRel accuracy:")
-    for i in range(len(ks)):
-        print(f"top-{ks[i]} accuracy: {rel_acc_topk[i]}")
-
-    return acc_verb, balacc_verb, acc_rel, balacc_rel, verb_acc_topk, rel_acc_topk
+    return acc_verb, balacc_verb, acc_rel, balacc_rel, topk_acc_verb, topk_acc_rels
 
 def main():
     # get datasets

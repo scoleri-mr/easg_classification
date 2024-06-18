@@ -178,7 +178,7 @@ class EASGAutoEncoder(nn.Module):
     def __init__(   self, object_feats_dim, verb_feats_dim, 
                     num_rels, num_verbs, num_objs, 
                     hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-                    dropout_prob=0.2, graph_type='gat'  ):
+                    dropout_prob=0.2, graph_type='gat', use_focal_loss=False):
         super().__init__()
         
         self.encoder = EASGEncoder(
@@ -186,9 +186,10 @@ class EASGAutoEncoder(nn.Module):
             hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
             dropout_prob, graph_type
         )
-        self.decoder = EASGDecoder(
-            num_rels, num_verbs, num_objs, output_dim, output_dim*2, dropout_prob
-        )
+        self.decoder = EASGDecoder(num_rels, num_verbs, num_objs, 
+                                    output_dim, output_dim*2, dropout_prob)
+        self.focal_loss_verb = MultiClassFocalLoss()
+        self.use_focal_loss = use_focal_loss
         
     def forward(self, batch):
         # encode 
@@ -198,6 +199,17 @@ class EASGAutoEncoder(nn.Module):
         verb_logits, obj_verb_rel_logits = self.decoder(graphs_latents)
         return verb_logits, obj_verb_rel_logits
 
+    def loss_functions_ae(self, verb_gt, rels_gt, verb_logits, relationship_logits):
+        relationship_logits = relationship_logits.contiguous().view(-1, 14) 
+        rels_gt = rels_gt.view(-1, 14)
+        if self.use_focal_loss:
+            loss_verb = self.focal_loss_verb(verb_logits, verb_gt)
+            loss_rel = sigmoid_focal_loss(relationship_logits, rels_gt, reduction="mean")
+        else:
+            loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
+            loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)
+        return loss_verb, loss_rel
+    
 class EASGvae(nn.Module):
     def __init__(   self, object_feats_dim, verb_feats_dim, 
                     num_rels, num_verbs, num_objs, 
@@ -229,6 +241,8 @@ class EASGvae(nn.Module):
     #### the loss function in neural graph generator repeats parts of the forward, I removed those parts
     #### with respect to a traditional VAE instead of having an l1 type loss we use a CE and BCE that are summed to the kld
     def loss_functions(self, verb_gt, rels_gt, verb_logits, relationship_logits, mu, logvar):
+        relationship_logits = relationship_logits.contiguous().view(-1, 14) 
+        rels_gt = rels_gt.view(-1, 14)
         if self.use_focal_loss:
             loss_verb = self.focal_loss_verb(verb_logits, verb_gt)
             loss_rel = sigmoid_focal_loss(relationship_logits, rels_gt, reduction="mean")
