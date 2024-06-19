@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument('--ann_path', type=str, default='./annts_in_new_format/', help='path to annotations')
     parser.add_argument('--data_path', type=str, default='./data/', help='path to ROI and clip features')
     parser.add_argument('--num_epochs', type=int, default=100, help='total number of epochs')
-    parser.add_argument('--beta', type=float, default=0.05, help='beta weighting kld of vae. beta=1 triggers weighted beta')
+    parser.add_argument('--beta', type=float, default=0.0005, help='beta weighting kld of vae. beta=1 triggers weighted beta')
     parser.add_argument('--kld_type', type=str, default='original', help='type of kld. Choose between original, mean, commonScenes')
     parser.add_argument('--hidden_proj_dim', type=int, default=1024, help='hidden dimension for linear projection')
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
