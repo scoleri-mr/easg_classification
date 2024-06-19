@@ -8,7 +8,7 @@ from torch_geometric.loader import DataLoader
 from argparse import ArgumentParser
 import torch.optim.lr_scheduler as lr_scheduler
 import wandb
-from autoencoder_mine import EASGAutoEncoder
+from autoencoder import EASGAutoEncoder
 import torch
 from torch import cuda
 from torch.optim import Adam
@@ -206,7 +206,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                     
         scheduler.step()
         
-        if (epoch+1) % 5 == 0 or epoch==0:
+        if (epoch+1) % 10 == 0 or epoch==0:
             # EVALUATION
             acc_verb, balacc_verb, acc_rel, balacc_rel, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device, k_list_verbs=[1,2,5,10,20])
             acc_verb_t, balacc_verb_t, acc_rel_t, balacc_rel_t, topk_acc_verb_t, topk_acc_rels_t = evaluation(model, train_loader, device, k_list_verbs = [1,2,5,10,20])

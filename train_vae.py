@@ -8,7 +8,7 @@ from torch_geometric.loader import DataLoader
 from argparse import ArgumentParser
 import torch.optim.lr_scheduler as lr_scheduler
 import wandb
-from autoencoder_mine import EASGvae
+from autoencoder import EASGvae
 import torch
 from torch import cuda
 from torch.optim import Adam
@@ -223,7 +223,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 if opt.wandb: wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "kdl":kld, "current_lr": current_lr})                 
         scheduler.step()
         
-        if (epoch+1) % 5 == 0 or epoch == 0:
+        if (epoch+1) % 10 == 0 or epoch == 0:
             # EVALUATION
             if opt.check_overfitting:
                 val_loader = train_loader

@@ -3,23 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric as tg
 from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv, GINConv
-from torch_geometric.nn import global_max_pool, global_mean_pool
-
-
-def gather_by_idxs(source, idx):
-    """
-    :param source: input points data, [B, N, C]
-    :param idx: sample index data, [B, S]
-    :return: indexed points data, [B, S, C]
-    """
-    B = source.shape[0]
-    view_shape = list(idx.shape)
-    view_shape[1:] = [1] * (len(view_shape) - 1)
-    repeat_shape = list(idx.shape)
-    repeat_shape[0] = 1
-    batch_indices = torch.arange(B, dtype=torch.long).to(source.device).view(view_shape).repeat(repeat_shape)
-    new_points = source[batch_indices, idx, :]
-    return new_points
+from torch_geometric.nn import global_max_pool
+from torchvision.ops.focal_loss import sigmoid_focal_loss
 
 
 class LinearProjection(nn.Module):
@@ -51,15 +36,24 @@ class LinearProjection(nn.Module):
             nn.Linear(hidden_projection_dim, projection_dim),
         )
 
-    def forward(self, verb_feat, obj_feat):
+    def forward(self, batch):
         """
         process with mlps, returns processed verb_feat and obj_feat
         """
+        out, mask = tg.utils.to_dense_batch(batch.x,batch.batch)  # [bs,max_nodes,2304], [bs,max_nodes]
+        bs, max_nodes = out.size(0), out.size(1)
+        # re-arrange features + remove feature padding: first elem. is verb node, the others are objs
+        verb_feat = out[:,0,:self.verb_dim].unsqueeze(1)  # [bs, 1, verb_feats_dim]
+        obj_feat = out[:,1:,:self.obj_dim]  # [bs, max_nodes-1, object_feats_dim]
+
         assert verb_feat.ndim == 3 and obj_feat.ndim == 3, "check input shapes to LinearProj"
         verb_feat = self.mlp_verb(verb_feat)  # [bs,1,projection_dim]
         obj_feat = self.mlp_object(obj_feat)  # [bs,max_nodes-1,projection_dim]
-        return verb_feat, obj_feat
-        
+
+        nodes_features = torch.cat([verb_feat, obj_feat], dim=1)  # [bs,max_nodes,projection_dim]
+        nodes_features = nodes_features[mask]
+        batch.x = nodes_features
+        return batch
     
 class myGNN(nn.Module):
     ''' 
@@ -82,22 +76,28 @@ class myGNN(nn.Module):
             self.conv1 = GATv2Conv(input_dim, hidden_dim)
             self.conv2 = GATv2Conv(hidden_dim, output_dim)
         elif layer_type=='gin':
-            self.conv1 = GINConv(input_dim, hidden_dim)
-            self.conv2 = GINConv(hidden_dim, output_dim)
+            self.conv1 = GINConv(nn.Sequential(
+                nn.Linear(input_dim, hidden_dim)
+            ))
+            self.conv2 = GINConv(nn.Sequential(
+                nn.Linear(hidden_dim, output_dim)
+            ))
         else:
             raise Exception('Wrong graph layer type')
         self.dropout = nn.Dropout(dropout_prob)
         self.relu = nn.ReLU()
         self.adaptive_max = nn.AdaptiveMaxPool1d(output_dim)
 
-    def forward(self, nodes_features, edge_index):
-        nodes_features = self.dropout(self.relu(self.conv1(nodes_features, edge_index)))
-        nodes_features = self.dropout(self.relu(self.conv2(nodes_features, edge_index)))
-        return nodes_features
-
+    def forward(self, batch):
+        nodes_features = self.dropout(self.relu(self.conv1(batch.x, batch.edge_index)))
+        nodes_features = self.dropout(self.relu(self.conv2(nodes_features, batch.edge_index)))
+        batch.x = nodes_features
+        return batch
+    
 class EASGEncoder(nn.Module): 
     def __init__(
-        self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+        self, object_feats_dim, verb_feats_dim, 
+        hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
         dropout_prob=0.2, graph_type='gat'
         ):
         super().__init__()
@@ -113,35 +113,13 @@ class EASGEncoder(nn.Module):
         self.gnn = myGNN(graph_type, projection_dim, hidden_dim, output_dim, dropout_prob)
 
     def encode_graph(self, batch):
-        out, mask = tg.utils.to_dense_batch(batch.x,batch.batch)  # [bs,max_nodes,2304], [bs,max_nodes]
-        bs, max_nodes = out.size(0), out.size(1)
-        
-        # re-arrange features + remove feature padding
-        # first elem. is verb node
-        verb_feat = out[:,0,:self.verb_feats_dim].unsqueeze(1)  # [bs, 1, verb_feats_dim]
-        # after first eleme at each batch item we've objs feats
-        # "obj_feat" contains also object nodes padded with zeros... we don't mind as we filter them later
-        obj_feat = out[:,1:,:self.object_feats_dim]  # [bs, max_nodes-1, object_feats_dim]
-        
-        # process with mlps
-        verb_feat, obj_feat = self.verb_obj_proj(verb_feat, obj_feat)  # [bs,1,proj_dim], [bs,max_nodes-1,proj_dim]
-        
-        # put again verb and objs nodes
-        nodes_features = torch.cat([verb_feat, obj_feat], dim=1)  # [bs,max_nodes,projection_dim]
-        # to PyG list + remove padding nodes
-        nodes_features = nodes_features[mask]
-        
-        # edge index are kept the same
-        edge_index = batch.edge_index
-        
-        nodes_features = self.gnn(nodes_features, edge_index)
-        graphs_latents = global_max_pool(nodes_features, batch.batch)
-        return nodes_features, graphs_latents
+        batch = self.verb_obj_proj(batch)
+        batch = self.gnn(batch)
+        graphs_latents = global_max_pool(batch.x, batch.batch)
+        return batch.x, graphs_latents
     
-    # this forward doesn't work.........
     def forward(self, batch):
-        return self.encode(batch)
-    
+        return self.encode_graph(batch)
     
 class EASGDecoder(nn.Module): 
     def __init__(
@@ -159,7 +137,7 @@ class EASGDecoder(nn.Module):
             nn.GELU(),
         )
         
-        # this part is for classifying the verb starting from the graph latent code
+        # verb cls starting from latent graph
         self.verb_head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -167,7 +145,7 @@ class EASGDecoder(nn.Module):
             nn.Linear(hidden_dim, num_verbs),
         )
         
-        # this part is for classifying the object-verb relationship from the graph latent code
+        # rels cls starting from latent graph
         self.rel_mlp = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -184,37 +162,37 @@ class EASGDecoder(nn.Module):
         # upsample features - common for verb and obj-verb relationships
         shared_repr = self.shared_mlp(codes)
         
-        #########
         # verb classification
-        verb_cls = self.verb_head(shared_repr)  # [bs, num_verbs]
-        #########
+        verb_logits = self.verb_head(shared_repr)  # [bs, num_verbs]
         
-        #########
         # obj-verb rel classification
         relationships = self.rel_mlp(shared_repr)  # [bs, num_objs*64]
         relationships = relationships.view(bs, -1, 64) #  [bs, num_objs, 64]
         relationships = relationships.permute(0,2,1) #  [bs, 64, num_objs]
-        relationships_cls = self.rel_head(relationships) #  [bs, num_rel, num_objs]
-        relationships_cls = relationships_cls.permute(0,2,1) #  [bs, num_objs, num_rel]
-        #########
-        
-        return verb_cls, relationships_cls
-    
-    
-class EASG_AutoEncoder(nn.Module): 
-    def __init__(
-        self, object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-        dropout_prob=0.2, edge_creation='mean', graph_type='gat'
-        ):
+        relationships_logits = self.rel_head(relationships) #  [bs, num_rel, num_objs]
+        relationships_logits = relationships_logits.permute(0,2,1) #  [bs, num_objs, num_rel]
+
+        return verb_logits, relationships_logits
+
+class EASGAutoEncoder(nn.Module): 
+    def __init__(   self, object_feats_dim, verb_feats_dim, 
+                    num_rels, num_verbs, num_objs, 
+                    hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+                    dropout_prob=0.2, graph_type='gat', use_focal_loss=False):
         super().__init__()
         
         self.encoder = EASGEncoder(
-            object_feats_dim, verb_feats_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+            object_feats_dim, verb_feats_dim, 
+            hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
             dropout_prob, graph_type
         )
-        self.decoder = EASGDecoder(
-            num_rels, num_verbs, num_objs, output_dim, output_dim*2, dropout_prob
-        )
+        self.decoder = EASGDecoder(num_rels, num_verbs, num_objs, 
+                                    output_dim, output_dim*2, dropout_prob)
+        self.focal_loss_verb = MultiClassFocalLoss()
+        self.use_focal_loss = use_focal_loss
+
+        if self.use_focal_loss:
+            print("Using ae with focal loss...")        
         
     def forward(self, batch):
         # encode 
@@ -223,13 +201,125 @@ class EASG_AutoEncoder(nn.Module):
         # decode
         verb_logits, obj_verb_rel_logits = self.decoder(graphs_latents)
         return verb_logits, obj_verb_rel_logits
+
+    def loss_functions_ae(self, verb_gt, rels_gt, verb_logits, relationship_logits):
+        relationship_logits = relationship_logits.contiguous().view(-1, 14) 
+        rels_gt = rels_gt.view(-1, 14)
+        if self.use_focal_loss:
+            loss_verb = self.focal_loss_verb(verb_logits, verb_gt)
+            loss_rel = sigmoid_focal_loss(relationship_logits, rels_gt, reduction="mean")
+        else:
+            loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
+            loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)
+        return loss_verb, loss_rel
     
+class EASGvae(nn.Module):
+    def __init__(   self, object_feats_dim, verb_feats_dim, 
+                    num_rels, num_verbs, num_objs, 
+                    hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+                    kld_type, dropout_prob=0.2, graph_type='gcn', use_focal_loss=False):
+        super(EASGvae, self).__init__()
+        self.kld_type = kld_type
+        self.encoder = EASGEncoder(object_feats_dim, verb_feats_dim, 
+                                   hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
+                                   dropout_prob, graph_type)
+        self.fc_mu = nn.Linear(output_dim, output_dim)
+        self.fc_logvar = nn.Linear(output_dim, output_dim)
+        self.decoder = EASGDecoder(num_rels, num_verbs, num_objs, 
+                                   output_dim, hidden_dim, dropout_prob)
+        self.focal_loss_verb = MultiClassFocalLoss()
+        self.use_focal_loss = use_focal_loss
+
+        if self.use_focal_loss:
+            print("Using vae with focal loss...")
+
+    def forward(self, batch):
+        _, graphs_latents = self.encoder(batch)
+        mu = self.fc_mu(graphs_latents)
+        logvar = self.fc_logvar(graphs_latents)
+        graphs_latents = self.reparameterize(mu, logvar)
+        verb_logits, relationships_logits = self.decoder(graphs_latents)
+        return verb_logits, relationships_logits, mu, logvar
     
+    #### the loss function in neural graph generator repeats parts of the forward, I removed those parts
+    #### with respect to a traditional VAE instead of having an l1 type loss we use a CE and BCE that are summed to the kld
+    def loss_functions(self, verb_gt, rels_gt, verb_logits, relationship_logits, mu, logvar):
+        relationship_logits = relationship_logits.contiguous().view(-1, 14) 
+        rels_gt = rels_gt.view(-1, 14)
+        if self.use_focal_loss:
+            loss_verb = self.focal_loss_verb(verb_logits, verb_gt)
+            loss_rel = sigmoid_focal_loss(relationship_logits, rels_gt, reduction="mean")
+        else:
+            loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
+            loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)
+        if self.kld_type == 'original': # performs kld summing all together for the batch
+            kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        elif self.kld_type == 'mean':   # performs separate kld for each sample and then average them
+            kld =  torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim = 1), dim = 0)
+        return loss_verb, loss_rel, kld
+        
+    def reparameterize(self, mu, logvar, eps_scale=1.):
+        if self.training:
+            std = logvar.mul(0.5).exp_()
+            eps = torch.randn_like(std) * eps_scale
+            return eps.mul(std).add_(mu)
+        else:
+            return mu
+
+    def encode(self, batch):
+        graphs_latents = self.encoder(batch)
+        mu = self.fc_mu(graphs_latents)
+        logvar = self.fc_logvar(graphs_latents)
+        graphs_latents = self.reparameterize(mu, logvar)
+        return graphs_latents
     
-if __name__ == "__main__":
-    print('debugging')
-    model = EASGDecoder(10,20,30,64,128).cuda()
-    t = torch.rand(16, 64).cuda()
-    res = model(t)
-    print(f"res[0]: {res[0].shape}")
-    print(f"res[1]: {res[1].shape}")
+    def decode(self, mu, logvar):
+       x_g = self.reparameterize(mu, logvar)
+       adj = self.decoder(x_g)
+       return adj
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
+
+class MultiClassFocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, reduction='mean'):
+        super(MultiClassFocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        logpt = F.log_softmax(inputs, dim=-1)
+        logpt = logpt.gather(1, targets.view(-1, 1))
+        logpt = logpt.view(-1)
+        pt = logpt.exp()
+
+        focal_loss = -((1 - pt) ** self.gamma) * logpt
+
+        if self.alpha >= 0:
+            alpha_t = self.alpha * targets.float() + (1 - self.alpha) * (1 - targets.float())
+            focal_loss = alpha_t * focal_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
+    
