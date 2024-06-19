@@ -170,7 +170,7 @@ def weight_beta(num_epochs, beta):
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
-        opt.exp_name = f"VAE_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_lr={opt.lr_start}_fl={opt.focal_loss}_{str(int(time.time()))}"
+        opt.exp_name = f"VAE{opt.num_epochs}_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_lr={opt.lr_start}_fl={opt.focal_loss}_ex={opt.exclude_verbs}_{str(int(time.time()))}"
     print(f"Training - exp name: {opt.exp_name}")        
         
     model = model.to(device)
@@ -185,7 +185,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     history_rels = []
     history_kld = []
 
-    log_filename = f'log_vae_{opt.kld_type}_b={opt.beta}_ld={opt.output_dim}_lr={opt.lr_start}_fl={opt.focal_loss}'
+    log_filename = f'log_{opt.exp_name}'
     log_file_path = os.path.join('./experiments', log_filename)
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
     logging.basicConfig(format='%(asctime)s.%(msecs)03d %(message)s',
