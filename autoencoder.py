@@ -139,6 +139,13 @@ class EASGDecoder(nn.Module):
         
         # verb cls starting from latent graph
         self.verb_head = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim*2),
+            nn.LayerNorm(hidden_dim*2),
+            nn.GELU(),
+            nn.Dropout(dropout_prob),
+            nn.Linear(hidden_dim*2, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.GELU(),
@@ -147,6 +154,13 @@ class EASGDecoder(nn.Module):
         
         # rels cls starting from latent graph
         self.rel_mlp = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim*2),
+            nn.LayerNorm(hidden_dim*2),
+            nn.GELU(),
+            nn.Dropout(dropout_prob),
+            nn.Linear(hidden_dim*2, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.GELU(),
@@ -160,13 +174,13 @@ class EASGDecoder(nn.Module):
         bs = codes.size(0)
         
         # upsample features - common for verb and obj-verb relationships
-        shared_repr = self.shared_mlp(codes)
+        # shared_repr = self.shared_mlp(codes)
         
         # verb classification
-        verb_logits = self.verb_head(shared_repr)  # [bs, num_verbs]
+        verb_logits = self.verb_head(codes)  # [bs, num_verbs]
         
         # obj-verb rel classification
-        relationships = self.rel_mlp(shared_repr)  # [bs, num_objs*64]
+        relationships = self.rel_mlp(codes)  # [bs, num_objs*64]
         relationships = relationships.view(bs, -1, 64) #  [bs, num_objs, 64]
         relationships = relationships.permute(0,2,1) #  [bs, 64, num_objs]
         relationships_logits = self.rel_head(relationships) #  [bs, num_rel, num_objs]
@@ -207,7 +221,9 @@ class EASGAutoEncoder(nn.Module):
         rels_gt = rels_gt.view(-1, 14)
         if self.use_focal_loss:
             loss_verb = self.focal_loss_verb(verb_logits, verb_gt)
-            loss_rel = sigmoid_focal_loss(relationship_logits, rels_gt, reduction="mean")
+            # loss_rel = sigmoid_focal_loss(relationship_logits, rels_gt, reduction="mean")
+            weights = torch.cat((torch.ones(13), torch.tensor([0.01])))
+            loss_rel = F.binary_cross_entropy_with_logits(weight=weights, input=relationship_logits, target=rels_gt)
         else:
             loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
             loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)
