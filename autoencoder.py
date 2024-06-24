@@ -124,48 +124,66 @@ class EASGEncoder(nn.Module):
 class EASGDecoder(nn.Module): 
     def __init__(
         self, num_rels, num_verbs, num_objs, input_dim, hidden_dim, 
-        dropout_prob=0.2
+        dropout_prob=0.2, separate=False
         ):
         super().__init__()
-        self.shared_mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim*2),
-            nn.LayerNorm(hidden_dim*2),
-            nn.GELU(),
-            nn.Dropout(dropout_prob),
-            nn.Linear(hidden_dim*2, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-        )
-        
-        # verb cls starting from latent graph
-        self.verb_head = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim*2),
-            nn.LayerNorm(hidden_dim*2),
-            nn.GELU(),
-            nn.Dropout(dropout_prob),
-            nn.Linear(hidden_dim*2, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, num_verbs),
-        )
-        
-        # rels cls starting from latent graph
-        self.rel_mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim*2),
-            nn.LayerNorm(hidden_dim*2),
-            nn.GELU(),
-            nn.Dropout(dropout_prob),
-            nn.Linear(hidden_dim*2, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, num_objs*64),
-        )
+        self.separate = separate
+        if separate: 
+            # verb cls starting from latent graph
+            self.verb_head = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim*2),
+                nn.LayerNorm(hidden_dim*2),
+                nn.GELU(),
+                nn.Dropout(dropout_prob),
+                nn.Linear(hidden_dim*2, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, num_verbs),
+            )
+
+            self.rel_mlp = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim*2),
+                nn.LayerNorm(hidden_dim*2),
+                nn.GELU(),
+                nn.Dropout(dropout_prob),
+                nn.Linear(hidden_dim*2, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, num_objs*64),
+            )
+
+        else: 
+            self.shared_mlp = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim*2),
+                nn.LayerNorm(hidden_dim*2),
+                nn.GELU(),
+                nn.Dropout(dropout_prob),
+                nn.Linear(hidden_dim*2, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+            )
+            
+            # verb cls starting from latent graph
+            self.verb_head = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, num_verbs),
+            )
+            
+            # rels cls starting from latent graph
+            self.rel_mlp = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, num_objs*64),
+            )
         self.rel_head = nn.Conv1d(in_channels=64, out_channels=num_rels, kernel_size=1)
         
         
@@ -174,13 +192,17 @@ class EASGDecoder(nn.Module):
         bs = codes.size(0)
         
         # upsample features - common for verb and obj-verb relationships
-        # shared_repr = self.shared_mlp(codes)
+        if not self.separate: shared_repr = self.shared_mlp(codes)
         
         # verb classification
-        verb_logits = self.verb_head(codes)  # [bs, num_verbs]
+        if self.separate:
+            verb_logits = self.verb_head(codes)  # [bs, num_verbs]
+        else: verb_logits = self.verb_head(shared_repr)  # [bs, num_verbs]
         
         # obj-verb rel classification
-        relationships = self.rel_mlp(codes)  # [bs, num_objs*64]
+        if self.separate:
+            relationships = self.rel_mlp(codes)
+        else: relationships = self.rel_mlp(shared_repr)  # [bs, num_objs*64]
         relationships = relationships.view(bs, -1, 64) #  [bs, num_objs, 64]
         relationships = relationships.permute(0,2,1) #  [bs, 64, num_objs]
         relationships_logits = self.rel_head(relationships) #  [bs, num_rel, num_objs]
@@ -221,9 +243,7 @@ class EASGAutoEncoder(nn.Module):
         rels_gt = rels_gt.view(-1, 14)
         if self.use_focal_loss:
             loss_verb = self.focal_loss_verb(verb_logits, verb_gt)
-            # loss_rel = sigmoid_focal_loss(relationship_logits, rels_gt, reduction="mean")
-            weights = torch.cat((torch.ones(13), torch.tensor([0.01])))
-            loss_rel = F.binary_cross_entropy_with_logits(weight=weights, input=relationship_logits, target=rels_gt)
+            loss_rel = sigmoid_focal_loss(relationship_logits, rels_gt, reduction="mean")
         else:
             loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
             loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)
@@ -233,7 +253,7 @@ class EASGvae(nn.Module):
     def __init__(   self, object_feats_dim, verb_feats_dim, 
                     num_rels, num_verbs, num_objs, 
                     hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-                    kld_type, dropout_prob=0.2, graph_type='gcn', use_focal_loss=False):
+                    kld_type, dropout_prob=0.2, graph_type='gcn', use_focal_loss=False, eps=1., separate=True):
         super(EASGvae, self).__init__()
         self.kld_type = kld_type
         self.encoder = EASGEncoder(object_feats_dim, verb_feats_dim, 
@@ -242,9 +262,14 @@ class EASGvae(nn.Module):
         self.fc_mu = nn.Linear(output_dim, output_dim)
         self.fc_logvar = nn.Linear(output_dim, output_dim)
         self.decoder = EASGDecoder(num_rels, num_verbs, num_objs, 
-                                   output_dim, hidden_dim, dropout_prob)
+                                   output_dim, hidden_dim, dropout_prob, separate)
         self.focal_loss_verb = MultiClassFocalLoss()
         self.use_focal_loss = use_focal_loss
+        self.eps = eps
+        self.separate = separate
+
+        if self.separate:
+            print("Using separate mlp for verb and rels, removing shared mlp...")
 
         if self.use_focal_loss:
             print("Using vae with focal loss...")
@@ -253,7 +278,7 @@ class EASGvae(nn.Module):
         _, graphs_latents = self.encoder(batch)
         mu = self.fc_mu(graphs_latents)
         logvar = self.fc_logvar(graphs_latents)
-        graphs_latents = self.reparameterize(mu, logvar)
+        graphs_latents = self.reparameterize(mu, logvar, self.eps)
         verb_logits, relationships_logits = self.decoder(graphs_latents)
         return verb_logits, relationships_logits, mu, logvar
     
@@ -265,6 +290,8 @@ class EASGvae(nn.Module):
         if self.use_focal_loss:
             loss_verb = self.focal_loss_verb(verb_logits, verb_gt)
             loss_rel = sigmoid_focal_loss(relationship_logits, rels_gt, reduction="mean")
+            # weights = torch.cat((torch.ones(13), torch.tensor([0.01])))
+            # loss_rel = F.binary_cross_entropy_with_logits(weight=weights, input=relationship_logits, target=rels_gt)
         else:
             loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
             loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)

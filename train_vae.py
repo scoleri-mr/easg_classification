@@ -43,6 +43,7 @@ def parse_args():
     parser.add_argument('--lr_start', type=float, default=0.0001, help='starting learning rate')
     parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')
     parser.add_argument('--lr_step_size', type=int, default=20, help='step size for scheduler')
+    parser.add_argument('--eps', type=float, default= 1., help='set the epsilon for the vae reparametrize')
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     parser.add_argument('--wandb', action='store_true', help="If specified enables wandb logging")
     parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat, gin')
@@ -53,6 +54,7 @@ def parse_args():
     parser.add_argument('--focal_loss', action='store_true', help="If specified use focal loss to balance verb classes")
     parser.add_argument('--exclude_verbs', action='store_true', help="If specified exclude verbs from training, use to focus on relationships")
     parser.add_argument('--wandb_proj', type=str, default='vae_easg')
+    parser.add_argument('--separate', action='store_true', help='If specified separates the heads of verbs and relationships removing common mpl in the decoder')
     args = parser.parse_args()
     return args
 
@@ -170,7 +172,7 @@ def weight_beta(num_epochs, beta):
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
-        opt.exp_name = f"VAE{opt.num_epochs}_separate_weightedBCE_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_lr={opt.lr_start}_fl={opt.focal_loss}_ex={opt.exclude_verbs}_{str(int(time.time()))}"
+        opt.exp_name = f"VAE{opt.num_epochs}_sep={opt.separate}_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_lr={opt.lr_start}_fl={opt.focal_loss}_ex={opt.exclude_verbs}_eps={opt.eps}_{str(int(time.time()))}"
     print(f"Training - exp name: {opt.exp_name}")        
         
     model = model.to(device)
@@ -410,7 +412,9 @@ def main():
                     args.kld_type,
                     args.dropout_prob,
                     args.graph_type,
-                    args.focal_loss
+                    args.focal_loss,
+                    args.eps,
+                    args.separate
                     )
     optimizer = Adam(model.parameters(), lr=args.lr_start)
     

@@ -25,7 +25,7 @@ def set_wandb_config(num_epochs, hidden_projection_dim, projection_dim,
 
     return config
 
-def load_model(model_name, model_path):
+def load_model(model_name, model_path, separate):
     import torch
     verb_dim = 2304
     obj_dim = 1024
@@ -43,7 +43,7 @@ def load_model(model_name, model_path):
 
     if model_name=='vae':
         from autoencoder import EASGvae
-        model = EASGvae(obj_dim, verb_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 'original', dropout_prob=dropout_prob, graph_type=graph_type, use_focal_loss=use_focal_loss)
+        model = EASGvae(obj_dim, verb_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 'original', dropout_prob=dropout_prob, graph_type=graph_type, use_focal_loss=use_focal_loss, separate=separate)
         model.load_state_dict(torch.load(model_path)['model_state_dict'])
     elif model_name=='ae':
         from autoencoder import EASGAutoEncoder
@@ -79,7 +79,7 @@ def verb_accuracy(list1, list2):
         return 0.0
     matches = sum(1 for a, b in zip(list1, list2) if a == b)
     accuracy = matches / len(list1)
-    return accuracy
+    return accuracy*100
 
 def handle_verbs_out(verbs_output):
     # verbs_predictions = [el.item() for el in torch.topk(torch.cat(verbs_output, dim=0), 1).indices]
