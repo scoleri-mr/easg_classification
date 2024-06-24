@@ -129,6 +129,15 @@ class EASGDecoder(nn.Module):
         super().__init__()
         self.separate = separate
         if separate: 
+            self.shared_mlp = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim*2),
+                nn.LayerNorm(hidden_dim*2),
+                nn.GELU(),
+                nn.Dropout(dropout_prob),
+                nn.Linear(hidden_dim*2, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+            )
             # verb cls starting from latent graph
             self.verb_head = nn.Sequential(
                 nn.Linear(input_dim, hidden_dim*2),
