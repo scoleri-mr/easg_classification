@@ -223,7 +223,7 @@ class EASGAutoEncoder(nn.Module):
     def __init__(   self, object_feats_dim, verb_feats_dim, 
                     num_rels, num_verbs, num_objs, 
                     hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-                    dropout_prob=0.2, graph_type='gat', use_focal_loss=False):
+                    dropout_prob=0.2, graph_type='gat', use_focal_loss=False, separate=False):
         super().__init__()
         
         self.encoder = EASGEncoder(
@@ -232,9 +232,11 @@ class EASGAutoEncoder(nn.Module):
             dropout_prob, graph_type
         )
         self.decoder = EASGDecoder(num_rels, num_verbs, num_objs, 
-                                    output_dim, output_dim*2, dropout_prob)
+                                    output_dim, output_dim*2, dropout_prob, separate=separate)
         self.focal_loss_verb = MultiClassFocalLoss()
         self.use_focal_loss = use_focal_loss
+        if separate:
+            print("Using separate mlp for verb and rels, removing shared mlp...")
 
         if self.use_focal_loss:
             print("Using ae with focal loss...")        

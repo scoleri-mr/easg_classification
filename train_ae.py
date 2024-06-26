@@ -49,6 +49,7 @@ def parse_args():
     parser.add_argument('--focal_loss', action='store_true', help="If specified use focal loss to balance verb classes")
     parser.add_argument('--exclude_verbs', action='store_true', help="If specified exclude verbs from training, use to focus on relationships")
     parser.add_argument('--wandb_proj', type=str, default='ae_easg')
+    parser.add_argument('--separate', action='store_true', help='If specified separates the heads of verbs and relationships removing common mpl in the decoder')
     args = parser.parse_args()
     return args
 
@@ -155,7 +156,7 @@ def save_checkpoint(model, optimizer, epoch, path):
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
         # opt.exp_name = f"AE_{str(int(time.time()))}"
-        opt.exp_name = f"AE{opt.num_epochs}_od={opt.output_dim}_lr={opt.lr_start}_fl={opt.focal_loss}_ex={opt.exclude_verbs}_{str(int(time.time()))}"
+        opt.exp_name = f"AE{opt.num_epochs}_sep={opt.separate}_od={opt.output_dim}_lr={opt.lr_start}_fl={opt.focal_loss}_ex={opt.exclude_verbs}_{str(int(time.time()))}"
     print(f"Training - exp name: {opt.exp_name}")  
     
     model = model.to(device)
@@ -381,7 +382,8 @@ def main():
                              args.output_dim,
                              args.dropout_prob,
                              args.graph_type,
-                             args.focal_loss
+                             args.focal_loss,
+                             args.separate
                              )
     optimizer = Adam(model.parameters(), lr=args.lr_start)
     
