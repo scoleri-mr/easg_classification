@@ -44,7 +44,7 @@ def load_model(model_name, model_path, separate):
     if model_name=='vae':
         from autoencoder import EASGvae
         model = EASGvae(obj_dim, verb_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 'original', dropout_prob=dropout_prob, graph_type=graph_type, use_focal_loss=use_focal_loss, separate=separate)
-        model.load_state_dict(torch.load(model_path)['model_state_dict'])
+        model.load_state_dict(torch.load(model_path)['model_state_dict'], strict=False)
     elif model_name=='ae':
         from autoencoder import EASGAutoEncoder
         model = EASGAutoEncoder(obj_dim, verb_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, dropout_prob=dropout_prob, graph_type=graph_type, use_focal_loss=use_focal_loss, separate=separate)
