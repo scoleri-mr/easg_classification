@@ -21,6 +21,7 @@ from sklearn.metrics import accuracy_score, balanced_accuracy_score
 import logging
 from torch.utils.data import Subset
 import pickle
+from utils import load_model
 
 """"
 example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epochs200 --num_epochs 200
@@ -32,13 +33,13 @@ def parse_args():
     parser.add_argument('--val_batch_size', type=int, default=64)
     parser.add_argument('--ann_path', type=str, default='./annts_in_new_format/', help='path to annotations')
     parser.add_argument('--data_path', type=str, default='./data/', help='path to ROI and clip features')
-    parser.add_argument('--num_epochs', type=int, default=100, help='total number of epochs')
+    parser.add_argument('--num_epochs', type=int, default=1000, help='total number of epochs')
     parser.add_argument('--beta', type=float, default=0.0005, help='beta weighting kld of vae. beta=1 triggers weighted beta')
     parser.add_argument('--kld_type', type=str, default='original', help='type of kld. Choose between original, mean, commonScenes')
     parser.add_argument('--hidden_proj_dim', type=int, default=1024, help='hidden dimension for linear projection')
     parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
-    parser.add_argument('--output_dim', type=int, default=512, help='output dimension of the gnn')
+    parser.add_argument('--output_dim', type=int, default=256, help='output dimension of the gnn')
     parser.add_argument('--scheduler_type', type=str, default='cosine_annealing', help='choose between step, cosine_annealing and fixed')
     parser.add_argument('--lr_start', type=float, default=0.0001, help='starting learning rate')
     parser.add_argument('--lr_gamma', type=int, default=0.5, help='gamma parameter for lr scheduler')
@@ -55,6 +56,8 @@ def parse_args():
     parser.add_argument('--exclude_verbs', action='store_true', help="If specified exclude verbs from training, use to focus on relationships")
     parser.add_argument('--wandb_proj', type=str, default='vae_easg')
     parser.add_argument('--separate', action='store_true', help='If specified separates the heads of verbs and relationships removing common mpl in the decoder')
+    parser.add_argument('--from_ae', action='store_true', help='if specified start training from ae in base_path')
+    parser.add_argument('--base_path', type=str, help='path of the starting pretrained model')
     args = parser.parse_args()
     return args
 
@@ -172,7 +175,7 @@ def weight_beta(num_epochs, beta):
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
-        opt.exp_name = f"VAE{opt.num_epochs}_sep={opt.separate}_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_lr={opt.lr_start}_fl={opt.focal_loss}_ex={opt.exclude_verbs}_eps={opt.eps}_{str(int(time.time()))}"
+        opt.exp_name = f"VAE{opt.num_epochs}_sep={opt.separate}_fromae={opt.from_ae}_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_lr={opt.lr_start}_fl={opt.focal_loss}_ex={opt.exclude_verbs}_eps={opt.eps}_{str(int(time.time()))}"
     print(f"Training - exp name: {opt.exp_name}")        
         
     model = model.to(device)
@@ -417,7 +420,12 @@ def main():
                     args.separate
                     )
     optimizer = Adam(model.parameters(), lr=args.lr_start)
-    
+
+    if args.from_ae:
+        assert len(args.base_path) > 0, "if training from base model, we need the model path"
+        print("Start training the vae from specified ae model")
+        model.load_state_dict(torch.load(args.base_path)['model_state_dict'], strict=False)
+
     if args.eval:
         assert args.resume is not None, "eval mode but checkpoint has not been specified"
         model_weights = torch.load(args.resume)['model_state_dict']
