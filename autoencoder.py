@@ -321,7 +321,7 @@ class EASGvae(nn.Module):
             return mu
 
     def encode(self, batch):
-        graphs_latents = self.encoder(batch)
+        _, graphs_latents = self.encoder(batch)
         mu = self.fc_mu(graphs_latents)
         logvar = self.fc_logvar(graphs_latents)
         graphs_latents = self.reparameterize(mu, logvar)

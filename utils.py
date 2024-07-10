@@ -107,3 +107,24 @@ def to_triplets(verbs_gt, rels_gt, verbs_out, rels_out):
         verb_pred = torch.argmax(verbs_out[i]).unsqueeze(0).unsqueeze(0).repeat(len(obj_rels_pred),1)
         triplets_pred.append(torch.cat((verb_pred,obj_rels_pred), dim=1))
     return triplets_gt, triplets_pred
+
+def save_checkpoint(model, optimizer, epoch, path):
+    """
+    Saves a checkpoint of the model and optimizer states, along with training metadata.
+
+    Args:
+    model (torch.nn.Module): The model whose parameters you want to save.
+    optimizer (torch.optim.Optimizer): The optimizer with current state.
+    epoch (int): Current epoch number.
+    path (str): Path to save the checkpoint file.
+
+    Returns:
+    None
+    """
+    checkpoint = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+    }
+    torch.save(checkpoint, path)
+    print(f'Checkpoint saved to {path}')
