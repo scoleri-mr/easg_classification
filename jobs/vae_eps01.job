@@ -1,0 +1,21 @@
+#!/bin/bash
+#SBATCH --job-name=vae_eps01
+#SBATCH --gpus=1
+#SBATCH --cpus-per-gpu=3
+#SBATCH --mem-per-cpu=8GB
+#SBATCH --time=02:00:00
+
+cd /home/mscoleri/easg_classification || exit
+
+# clean the module environment that we may have inherited from the calling session
+ml purge
+
+# load the relevant modules
+ml Python/3.10.4-GCCcore-11.3.0
+module load CUDA/11.1.1-GCC-10.2.0
+source /home/mscoleri/easg_classification/env1/bin/activate
+echo which python
+
+# run the script
+wandb offline
+python /home/mscoleri/easg_classification/train_vae.py --output_dim=256 --focal_loss --eps=0.1 --num_epochs=1000 --wandb --wandb_proj=compare_ae_vae --separate
