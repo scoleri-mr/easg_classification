@@ -358,7 +358,7 @@ def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels
     # get a balanced accuracy for relationships as well. WARNING: this balanced accuracy does not take into
     # account the possibility to have multiple relationship, it's just to see how the focal loss changes the results
     list_pred_rels = torch.argmax(list_logits_rels,-1)
-    acc_rel= accuracy_score(y_true=list_gt_rels.cpu().numpy(), y_pred=list_pred_rels.cpu().numpy()).item()
+    acc_rel= accuracy_score(y_true=list_gt_rels.cpu().numpy(), y_pred=list_pred_rels.cpu().numpy())
     balacc_rel = balanced_accuracy_score(y_true=list_gt_rels.cpu().numpy(), y_pred=list_pred_rels.cpu().numpy())
 
     return acc_verb, balacc_verb, acc_rel, balacc_rel, topk_acc_verb, topk_acc_rels
