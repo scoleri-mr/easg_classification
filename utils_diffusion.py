@@ -7,12 +7,16 @@ import scipy.sparse
 import torch
 import torch.nn.functional as F
 import community as community_louvain
+from tqdm import tqdm
 
 from torch import Tensor
 from torch.utils.data import Dataset
+from torch_geometric.data import Data
 
 from grakel.utils import graph_from_networkx
 from grakel.kernels import WeisfeilerLehman, VertexHistogram
+
+from denoise_model import sample, DenoiseNN
 
 def construct_nx_from_adj(adj):
     G = nx.from_numpy_array(adj, create_using=nx.Graph)
@@ -55,15 +59,12 @@ def eval_autoencoder(test_loader, autoencoder, n_max_nodes, device):
         for i in range(len(Gs_pairs)):
             K = wl_kernel.fit_transform(Gs_pairs[i])
             sims.append(K[0,1])
-
     print('Average similarity:', np.mean(sims))
-
 
 def handle_nan(x):
     if math.isnan(x):
         return float(-100)
     return x
-
 
 def read_stats(file):
     stats = []
@@ -78,8 +79,6 @@ def read_stats(file):
         stats.append(float(tokens[-1].strip()))
     fread.close()
     return stats
-
-
 
 def create_dataset(Gs, pos_enc_dim, max_n_nodes):
     data = []
@@ -99,9 +98,7 @@ def create_dataset(Gs, pos_enc_dim, max_n_nodes):
         adj = torch.zeros(max_n_nodes, max_n_nodes)
         adj[edge_index[0,:], edge_index[1,:]] = 1
         data.append(Data(x=x, edge_index=edge_index, adj=adj))
-
     return data
-
 
 class CustomDataset(Dataset):
     """ Based on https://github.com/lrjconan/GRAN/blob/master/utils/data_helper.py#L192 """
@@ -183,11 +180,8 @@ class CustomDataset(Dataset):
             size_diff += 1
         graph["eigval"] = F.pad(eigvals, [0, max(0, self.n_max - eigvals.size(0))])
         graph["eigvec"] = F.pad(eigvecs, [0, size_diff, 0, size_diff])
-
         graph["mask"] = F.pad(torch.ones_like(self.adjs[idx]), [0, size_diff, 0, size_diff]).long()
-
         return graph
-
 
 def masked_instance_norm2D(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-5):
     """
@@ -204,7 +198,6 @@ def masked_instance_norm2D(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-
     instance_norm = instance_norm * mask
     return instance_norm
 
-
 def masked_layer_norm2D(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-5):
     """
     x: [batch_size (N), num_objects (L), num_objects (L), features(C)]
@@ -220,7 +213,6 @@ def masked_layer_norm2D(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-5):
     layer_norm = layer_norm * mask
     return layer_norm
 
-
 def cosine_beta_schedule(timesteps, s=0.008):
     """
     cosine schedule as proposed in https://arxiv.org/abs/2102.09672
@@ -232,27 +224,21 @@ def cosine_beta_schedule(timesteps, s=0.008):
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
     return torch.clip(betas, 0.0001, 0.9999)
 
-
 def linear_beta_schedule(timesteps):
     beta_start = 0.0001
     beta_end = 0.02
     return torch.linspace(beta_start, beta_end, timesteps)
-
 
 def quadratic_beta_schedule(timesteps):
     beta_start = 0.0001
     beta_end = 0.02
     return torch.linspace(beta_start**0.5, beta_end**0.5, timesteps) ** 2
 
-
 def sigmoid_beta_schedule(timesteps):
     beta_start = 0.0001
     beta_end = 0.02
     betas = torch.linspace(-6, 6, timesteps)
     return torch.sigmoid(betas) * (beta_end - beta_start) + beta_start
-
-
-
 
 def calculate_stats_graph(G):
     stats = []
@@ -319,7 +305,6 @@ def calculate_stats_graph(G):
 def store_stats(y, y_pred, fw_name1, fw_name2):
     fw1 = open(fw_name1,"w")
     fw2 = open(fw_name2,"w")
-
     for el in y:
         np.savetxt(fw1, el, newline=' ')
         fw1.write('\n')
@@ -329,9 +314,6 @@ def store_stats(y, y_pred, fw_name1, fw_name2):
         np.savetxt(fw2, el, newline=' ')
         fw2.write('\n')
     fw2.close()
-
-
-
 
 def gen_stats(G):
     y_pred = calculate_stats_graph(G)
@@ -346,26 +328,20 @@ def precompute_missing(y, y_pred):
     y_pred = np.nan_to_num(y_pred, nan=-100.0)
     # Find indices where y is -100
     indices_to_change = np.where(y == -100.0)
-
     # Set corresponding elements in y and y_pred to 0
     y[indices_to_change] = 0.0
     y_pred[indices_to_change] = 0.0
     zeros_per_column = np.count_nonzero(y, axis=0)
-
     list_from_array = zeros_per_column.tolist()
     dc = {}
     for i in range(len(list_from_array)):
         dc[i] = list_from_array[i]
     return dc, y, y_pred
 
-
-
 def sum_elements_per_column(matrix, dc):
     num_rows = len(matrix)
     num_cols = len(matrix[0])
-
     column_sums = [0] * num_cols
-
     for col in range(num_cols):
         for row in range(num_rows):
             column_sums[col] += matrix[row][col]
@@ -374,27 +350,20 @@ def sum_elements_per_column(matrix, dc):
     for col in range(num_cols):
         x = column_sums[col]/dc[col]
         res.append(x)
-
     return res
 
 
 
 def calculate_mean_std(x):
-
     sm = [0 for i in range(15)]
     samples = [0 for i in range(15)]
-
     for el in x:
         for i, it in enumerate(el):
             if not math.isnan(it):
                 sm[i] += it
                 samples[i] += 1
-
     mean = [k / y for k,y in zip(sm, samples)]
-
-
     sm2 = [0 for i in range(16)]
-
     std = []
 
     for el in x:
@@ -406,51 +375,36 @@ def calculate_mean_std(x):
     std = [(k / y)**0.5 for k,y in zip(sm2, samples)]
     return mean, std
 
-
-
 def evaluation_metrics(y, y_pred, eps=1e-10):
     dc, y, y_pred = precompute_missing(y, y_pred)
-
     mse_st = (y - y_pred) ** 2
     mae_st = np.absolute(y - y_pred)
-
     mse = sum_elements_per_column(mse_st, dc)
     mae = sum_elements_per_column(mae_st, dc)
-
     #mse = [sum(x)/len(mse_st) for x in zip(*mse_st)]
     #mae = [sum(x)/len(mae_st) for x in zip(*mae_st)]
 
     a = np.absolute(y - y_pred)
     b = np.absolute(y) + np.absolute(y_pred)+ eps
     norm_error_st = (a/b)
-
     norm_error = sum_elements_per_column(norm_error_st, dc)
     #[sum(x)*100/len(norm_error_st) for x in zip(*norm_error_st)]
-
     return mse, mae, norm_error
 
 
 def z_score_norm(y, y_pred, mean, std, eps=1e-10):
-
     y = np.array(y)
     y_pred = np.array(y_pred)
-
     normalized_true = (y - mean) / std
-
     normalized_gen = (y_pred - mean) / std
-
     dc, normalized_true, normalized_gen = precompute_missing(normalized_true, normalized_gen)
-
     #print(np.isnan(normalized_true).any())
     #print(np.isnan(normalized_gen).any())
-
     # Calculate MSE using normalized tensors
     mse_st = (normalized_true - normalized_gen) ** 2
     mae_st = np.absolute(normalized_true - normalized_gen)
-
     mse = sum_elements_per_column(mse_st, dc)
     mae = sum_elements_per_column(mae_st, dc)
-
     mse = np.sum(mse)/15
     mae = np.sum(mae)/15
 
@@ -459,6 +413,23 @@ def z_score_norm(y, y_pred, mean, std, eps=1e-10):
     norm_error_st = (a/b)
     norm_error = sum_elements_per_column(norm_error_st, dc)
     norm_error = np.sum(norm_error)/15
-
-
     return mse, mae, norm_error
+
+def load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond):
+    diffusion_model = DenoiseNN(latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond).to('cuda')
+    diffusion_model.load_state_dict(torch.load(diff_path)['model_state_dict'])
+    return diffusion_model
+
+# TODO: add a function here to get encoded vectors starting from the trained model
+def get_samples(test_loader, diff_path, cond, timesteps, batch_size=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    betas = linear_beta_schedule(timesteps=timesteps)
+    denoise_model = load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond)
+    for k, data in enumerate(tqdm(test_loader, desc='Processing test set',)):
+        batch, verb_gt, rel_gt = data
+        batch = batch.to(device)
+        if cond:
+            conditioning = data.stats
+        else: conditioning = None
+        samples = sample(denoise_model, conditioning, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=batch.size(0))
+    return samples

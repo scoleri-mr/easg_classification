@@ -83,7 +83,7 @@ def main():
         n_properties = args.n_properties
         dim_condition = args.dim_condition
     else:
-        print('No conditioning is applied.')
+        print('No conditioning applied.')
         n_properties = 0
         dim_condition = 0
 
@@ -133,7 +133,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion{args.epochs_denoise}_lr={args.lr}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion{args.epochs_denoise}_tsteps={args.timesteps}_lr={args.lr}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
@@ -200,52 +200,52 @@ def main():
     pred = []
 
 
-    for k, data in enumerate(tqdm(test_loader, desc='Processing test set',)):
-        batch, verb_gt, rel_gt = data
-        batch = batch.to(device)
-        if args.cond:
-            conditioning = data.stats
-        else: conditioning = None
-        samples = sample(denoise_model, conditioning, latent_dim=args.latent_dim, timesteps=args.timesteps, betas=betas, batch_size=batch.size(0))
-        x_sample = samples[-1]
-        adj = vae.decode(x_sample)
-        stat_d = torch.reshape(stat, (-1, args.n_properties))
+    # for k, data in enumerate(tqdm(test_loader, desc='Processing test set',)):
+    #     batch, verb_gt, rel_gt = data
+    #     batch = batch.to(device)
+    #     if args.cond:
+    #         conditioning = data.stats
+    #     else: conditioning = None
+    #     samples = sample(denoise_model, conditioning, latent_dim=args.latent_dim, timesteps=args.timesteps, betas=betas, batch_size=batch.size(0))
+    #     x_sample = samples[-1]
+    #     adj = vae.decode(x_sample)
+    #     stat_d = torch.reshape(stat, (-1, args.n_properties))
 
-        for i in range(stat.size(0)):
-            #adj = autoencoder.decode_mu(samples[random_index])
-            # Gs_generated.append(construct_nx_from_adj(adj[i,:,:].detach().cpu().numpy()))
-            stat_x = stat_d[i]
+    #     for i in range(stat.size(0)):
+    #         #adj = autoencoder.decode_mu(samples[random_index])
+    #         # Gs_generated.append(construct_nx_from_adj(adj[i,:,:].detach().cpu().numpy()))
+    #         stat_x = stat_d[i]
 
-            Gs_generated = construct_nx_from_adj(adj[i,:,:].detach().cpu().numpy())
-            stat_x = stat_x.detach().cpu().numpy()
-            ground_truth.append(stat_x)
-            pred.append(gen_stats(Gs_generated))
-
-
-    store_stats(ground_truth, pred, "y_stats.txt", "y_pred_stats.txt")
-
-    # stats = torch.cat(stats, dim=0).detach().cpu().numpy()
-
-    mean, std = calculate_mean_std(ground_truth)
-
-    mse, mae, norm_error = evaluation_metrics(ground_truth, pred)
-
-    mse_all, mae_all, norm_error_all, mean_perc_error_all = z_score_norm(ground_truth, pred, mean, std)
+    #         Gs_generated = construct_nx_from_adj(adj[i,:,:].detach().cpu().numpy())
+    #         stat_x = stat_x.detach().cpu().numpy()
+    #         ground_truth.append(stat_x)
+    #         pred.append(gen_stats(Gs_generated))
 
 
-    feats_lst = ["number of nodes", "number of edges", "density","max degree", "min degree", "avg degree","assortativity","triangles","avg triangles","max triangles","avg clustering coef", "global clustering coeff", "max k-core", "communities","diameter"]
-    id2feats = {i:feats_lst[i] for i in range(len(mse))}
+    # store_stats(ground_truth, pred, "y_stats.txt", "y_pred_stats.txt")
 
-    print("MSE for the samples in all features is equal to: "+str(mse_all))
-    print("MAE for the samples in all features is equal to: "+str(mae_all))
-    print("Symmetric Mean absolute Percentage Error for the samples for all features is equal to: "+str(norm_error_all*100))
-    print("=" * 100)
+    # # stats = torch.cat(stats, dim=0).detach().cpu().numpy()
 
-    for i in range(len(mse)):
-        print("MSE for the samples for the feature \""+str(id2feats[i])+"\" is equal to: "+str(mse[i]))
-        print("MAE for the samples for the feature \""+str(id2feats[i])+"\" is equal to: "+str(mae[i]))
-        print("Symmetric Mean absolute Percentage Error for the samples for the feature \""+str(id2feats[i])+"\" is equal to: "+str(norm_error[i]*100))
-        print("=" * 100)
+    # mean, std = calculate_mean_std(ground_truth)
+
+    # mse, mae, norm_error = evaluation_metrics(ground_truth, pred)
+
+    # mse_all, mae_all, norm_error_all, mean_perc_error_all = z_score_norm(ground_truth, pred, mean, std)
+
+
+    # feats_lst = ["number of nodes", "number of edges", "density","max degree", "min degree", "avg degree","assortativity","triangles","avg triangles","max triangles","avg clustering coef", "global clustering coeff", "max k-core", "communities","diameter"]
+    # id2feats = {i:feats_lst[i] for i in range(len(mse))}
+
+    # print("MSE for the samples in all features is equal to: "+str(mse_all))
+    # print("MAE for the samples in all features is equal to: "+str(mae_all))
+    # print("Symmetric Mean absolute Percentage Error for the samples for all features is equal to: "+str(norm_error_all*100))
+    # print("=" * 100)
+
+    # for i in range(len(mse)):
+    #     print("MSE for the samples for the feature \""+str(id2feats[i])+"\" is equal to: "+str(mse[i]))
+    #     print("MAE for the samples for the feature \""+str(id2feats[i])+"\" is equal to: "+str(mae[i]))
+    #     print("Symmetric Mean absolute Percentage Error for the samples for the feature \""+str(id2feats[i])+"\" is equal to: "+str(norm_error[i]*100))
+    #     print("=" * 100)
 
 if __name__ == "__main__":
     main()
