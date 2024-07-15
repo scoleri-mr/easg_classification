@@ -8,6 +8,7 @@ out_path/
 experiments/
 plots/
 data/
+jobs/
 no_gnn_eval.py
 no_gnn_train.py
 no_gnn_prova.pth
