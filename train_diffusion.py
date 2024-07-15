@@ -42,8 +42,8 @@ def parse_args():
     parser.add_argument('--n-max-nodes', type=int, default=100)
     parser.add_argument('--spectral-emb-dim', type=int, default=10)
     parser.add_argument('--epochs_denoise', type=int, default=100)
-    parser.add_argument('--timesteps', type=int, default=500)
-    parser.add_argument('--hidden-dim-denoise', type=int, default=512)
+    parser.add_argument('--timesteps', type=int, default=100)
+    parser.add_argument('--hidden-dim-denoise', type=int, default=256)
     parser.add_argument('--n-layers_denoise', type=int, default=3)
     parser.add_argument('--train_denoiser', action='store_true', default=True)
     parser.add_argument('--n-properties', type=int, default=15)
@@ -76,6 +76,16 @@ def main():
 
     path_annts = Path(args.ann_path)
     path_data = Path(args.data_path)
+
+    # check if conditioning is activated
+    if args.cond:
+        print('Conditioning applied.')
+        n_properties = args.n_properties
+        dim_condition = args.dim_condition
+    else:
+        print('No conditioning is applied.')
+        n_properties = 0
+        dim_condition = 0
 
     # original dataset only has train and validation, 
     # further splitting the original 'train' dataset in train and test
@@ -113,7 +123,7 @@ def main():
     # calculations for posterior q(x_{t-1} | x_t, x_0)
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
-    denoise_model = DenoiseNN(input_dim=args.latent_dim, hidden_dim=args.hidden_dim_denoise, n_layers=args.n_layers_denoise, n_cond=args.n_properties, d_cond=args.dim_condition).to(device)
+    denoise_model = DenoiseNN(input_dim=args.latent_dim, hidden_dim=args.hidden_dim_denoise, n_layers=args.n_layers_denoise, n_cond=n_properties, d_cond=dim_condition).to(device)
     optimizer = torch.optim.Adam(denoise_model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.1)
 
@@ -138,10 +148,14 @@ def main():
             for data in train_loader:
                 batch, verb_gt, rel_gt = data
                 batch = batch.to(device)
+                if args.cond:
+                    conditioning = data.stats
+                else: conditioning = None
                 optimizer.zero_grad()
                 x_g = vae.encode(batch)
                 t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
-                loss = p_losses(denoise_model, x_g, t, data.stats, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
+                # loss = p_losses(denoise_model, x_g, t, data.stats, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
+                loss = p_losses(denoise_model, x_g, t, None, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
                 loss.backward()
                 train_loss_all += x_g.size(0) * loss.item()
                 train_count += x_g.size(0)
@@ -151,10 +165,14 @@ def main():
             val_loss_all = 0
             val_count = 0
             for data in val_loader:
-                data = data.to(device)
-                x_g = vae.encode(data)
+                batch, verb_gt, rel_gt = data
+                batch = batch.to(device)
+                if args.cond:
+                    conditioning = data.stats
+                else: conditioning = None
+                x_g = vae.encode(batch)
                 t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
-                loss = p_losses(denoise_model, x_g, t, data.stats, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
+                loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
                 val_loss_all += x_g.size(0) * loss.item()
                 val_count += x_g.size(0)
 
@@ -164,7 +182,7 @@ def main():
                 if args.wandb: wandb.log({"loss": loss})
 
                 # checkpoint
-                save_dir = f"./experiments_diffusion/{args.exp_name}/checkpoints"
+                save_dir = f"./experiments/diffusion/{args.exp_name}/checkpoints"
                 os.makedirs(save_dir, exist_ok=True)
                 save_checkpoint(model=denoise_model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
             scheduler.step()
@@ -183,10 +201,12 @@ def main():
 
 
     for k, data in enumerate(tqdm(test_loader, desc='Processing test set',)):
-        data = data.to(device)
-        stat = data.stats
-        bs = stat.size(0)
-        samples = sample(denoise_model, data.stats, latent_dim=args.latent_dim, timesteps=args.timesteps, betas=betas, batch_size=bs)
+        batch, verb_gt, rel_gt = data
+        batch = batch.to(device)
+        if args.cond:
+            conditioning = data.stats
+        else: conditioning = None
+        samples = sample(denoise_model, conditioning, latent_dim=args.latent_dim, timesteps=args.timesteps, betas=betas, batch_size=batch.size(0))
         x_sample = samples[-1]
         adj = vae.decode(x_sample)
         stat_d = torch.reshape(stat, (-1, args.n_properties))
@@ -206,22 +226,15 @@ def main():
 
     # stats = torch.cat(stats, dim=0).detach().cpu().numpy()
 
-
     mean, std = calculate_mean_std(ground_truth)
 
-
     mse, mae, norm_error = evaluation_metrics(ground_truth, pred)
-
 
     mse_all, mae_all, norm_error_all, mean_perc_error_all = z_score_norm(ground_truth, pred, mean, std)
 
 
-
     feats_lst = ["number of nodes", "number of edges", "density","max degree", "min degree", "avg degree","assortativity","triangles","avg triangles","max triangles","avg clustering coef", "global clustering coeff", "max k-core", "communities","diameter"]
     id2feats = {i:feats_lst[i] for i in range(len(mse))}
-
-
-
 
     print("MSE for the samples in all features is equal to: "+str(mse_all))
     print("MAE for the samples in all features is equal to: "+str(mae_all))
@@ -233,7 +246,6 @@ def main():
         print("MAE for the samples for the feature \""+str(id2feats[i])+"\" is equal to: "+str(mae[i]))
         print("Symmetric Mean absolute Percentage Error for the samples for the feature \""+str(id2feats[i])+"\" is equal to: "+str(norm_error[i]*100))
         print("=" * 100)
-
 
 if __name__ == "__main__":
     main()

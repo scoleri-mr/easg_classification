@@ -63,13 +63,14 @@ class DenoiseNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, n_layers, n_cond, d_cond):
         super(DenoiseNN, self).__init__()
         self.n_layers = n_layers
-        self.n_cond = n_cond
-        self.d_cond = d_cond
-        self.cond_mlp = nn.Sequential(
-            nn.Linear(n_cond, d_cond),
-            nn.ReLU(),
-            nn.Linear(d_cond, d_cond),
-        )
+        if n_cond>0 and d_cond>0:
+            self.n_cond = n_cond
+            self.d_cond = d_cond
+            self.cond_mlp = nn.Sequential(
+                nn.Linear(n_cond, d_cond),
+                nn.ReLU(),
+                nn.Linear(d_cond, d_cond),
+            )
 
         self.time_mlp = nn.Sequential(
             SinusoidalPositionEmbeddings(hidden_dim),
@@ -90,12 +91,14 @@ class DenoiseNN(nn.Module):
 
     
     def forward(self, x, t, cond):
-        cond = torch.reshape(cond, (-1, self.n_cond))
-        cond = torch.nan_to_num(cond, nan=-100.0)
-        cond = self.cond_mlp(cond)
+        if cond:
+            cond = torch.reshape(cond, (-1, self.n_cond))
+            cond = torch.nan_to_num(cond, nan=-100.0)
+            cond = self.cond_mlp(cond)
         t = self.time_mlp(t)
         for i in range(self.n_layers-1):
-            x = torch.cat((x, cond), dim=1)
+            if cond:
+                x = torch.cat((x, cond), dim=1)
             x = self.relu(self.mlp[i](x))+t
             x = self.bn[i](x)
         x = self.mlp[self.n_layers-1](x)
