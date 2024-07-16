@@ -425,6 +425,7 @@ def get_samples(test_loader, diff_path, cond, timesteps, batch_size=64, latent_d
     device = "cuda" if torch.cuda.is_available() else "cpu"
     betas = linear_beta_schedule(timesteps=timesteps)
     denoise_model = load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond)
+    denoise_model.eval()
     for k, data in enumerate(tqdm(test_loader, desc='Processing test set',)):
         batch, verb_gt, rel_gt = data
         batch = batch.to(device)
