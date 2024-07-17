@@ -40,6 +40,7 @@ class EASGData(Dataset):
             graph = {}
             for aid in annts[graph_uid]['annotations']: # cycle on all the annotations of the graph
                 for i, annt in enumerate(annts[graph_uid]['annotations'][aid]):
+                    
                     verb_idx = verbs.index(annt['verb'])
                     if verb_idx not in graph:
                         graph[verb_idx] = {}

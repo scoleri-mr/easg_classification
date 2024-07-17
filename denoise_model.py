@@ -104,7 +104,6 @@ class DenoiseNN(nn.Module):
         x = self.mlp[self.n_layers-1](x)
         return x
 
-
 @torch.no_grad()
 def p_sample(model, x, t, cond, t_index, betas):
     # define alphas
