@@ -352,8 +352,6 @@ def sum_elements_per_column(matrix, dc):
         res.append(x)
     return res
 
-
-
 def calculate_mean_std(x):
     sm = [0 for i in range(15)]
     samples = [0 for i in range(15)]
@@ -433,4 +431,4 @@ def get_samples(test_loader, diff_path, cond, timesteps, batch_size=64, latent_d
             conditioning = data.stats
         else: conditioning = None
         samples = sample(denoise_model, conditioning, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=batch.size(0))
-    return samples
+    return torch.stack(samples)
