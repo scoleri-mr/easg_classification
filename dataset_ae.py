@@ -39,8 +39,7 @@ class EASGData(Dataset):
         for graph_uid in annts:
             graph = {}
             for aid in annts[graph_uid]['annotations']: # cycle on all the annotations of the graph
-                for i, annt in enumerate(annts[graph_uid]['annotations'][aid]):
-                    
+                for i, annt in enumerate(annts[graph_uid]['annotations'][aid]):                    
                     verb_idx = verbs.index(annt['verb'])
                     if verb_idx not in graph:
                         graph[verb_idx] = {}
@@ -64,13 +63,15 @@ class EASGData(Dataset):
             for verb_idx in graph:
                 for obj_idx in graph[verb_idx]['objs']:
                     graph[verb_idx]['objs'][obj_idx]['obj_feat'] = graph[verb_idx]['objs'][obj_idx]['obj_feat'].mean(dim=0)
-
+                
+                graph[verb_idx]['frame_id'] = graph_uid
                 graphs.append(graph[verb_idx])
 
         self.graphs = []
         for graph in graphs:
             graph_batch = {}
             verb_idx = graph['verb_idx']
+            graph_batch['frame_id'] = graph['frame_id']
             graph_batch['verb_idx'] = torch.tensor([verb_idx], dtype=torch.long)
             graph_batch['clip_feat'] = graph['clip_feat']
             graph_batch['obj_indices'] = torch.zeros(0, dtype=torch.long)
@@ -140,6 +141,7 @@ class EASGDatasetAE(Dataset):
         graphs = []
         for graph_uid in annts:
             graph = {}
+            
             for aid in annts[graph_uid]['annotations']: # cycle on all the annotations of the graph
                 for i, annt in enumerate(annts[graph_uid]['annotations'][aid]):
                     verb_idx = verbs.index(annt['verb'])
@@ -166,12 +168,14 @@ class EASGDatasetAE(Dataset):
                 for obj_idx in graph[verb_idx]['objs']:
                     graph[verb_idx]['objs'][obj_idx]['obj_feat'] = graph[verb_idx]['objs'][obj_idx]['obj_feat'].mean(dim=0)
 
+                graph[verb_idx]['frame_id'] = graph_uid
                 graphs.append(graph[verb_idx])
 
         self.graphs = []
         for graph in graphs:
             graph_batch = {}
             verb_idx = graph['verb_idx']
+            graph_batch['frame_id'] = graph['frame_id']
             graph_batch['verb_idx'] = torch.tensor([verb_idx], dtype=torch.long)
             graph_batch['clip_feat'] = graph['clip_feat']
             graph_batch['obj_indices'] = torch.zeros(0, dtype=torch.long)
@@ -246,7 +250,7 @@ class EASGDatasetAE(Dataset):
         # different. To avoid this situation I add to the second row of the edge index the number of verbs
         # which is 198. This way it's like all nodes (verbs+objects) are indexed consecutively.
         # We can do it this way because we know that the first line always corresponds to a verb, 
-        # without this knowledge this should be adapted
+        # without this knowledge we would need to revise this
         edge_index_temp[1] = edge_index_temp[1] + 198
         edge_index = torch.zeros(edge_index_temp.size(), dtype=torch.int64)
         nodes = torch.unique_consecutive(
@@ -258,11 +262,13 @@ class EASGDatasetAE(Dataset):
                 edge_index[i][j] = index
         return torch.unique_consecutive(edge_index, dim=1)
         # NB: given that we summed 198 to the object indices, the first line of edge_index
-        # will always be zero in case of verb-object relationship
+        # will always be zero in case of verb-object relationships
+
+    def get_frame(self, idx):
+        return self.graphs[idx]['frame_id']
 
     def __getitem__(self, idx):
         # Extract data from the dictionary
-        # TODO: why these deepcopies???? previous logic was messing up - now it shouldn't be needed
         item = self.graphs[idx]
         clip_features = item['clip_feat']
         obj_feats = item['obj_feats']
