@@ -424,11 +424,17 @@ def get_samples(test_loader, diff_path, cond, timesteps, batch_size=64, latent_d
     betas = linear_beta_schedule(timesteps=timesteps)
     denoise_model = load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond)
     denoise_model.eval()
+    all_samples = []
     for k, data in enumerate(tqdm(test_loader, desc='Processing test set',)):
         batch, verb_gt, rel_gt = data
         batch = batch.to(device)
+        # TODO: embedding
+        # TODO: add noise
+        # TODO: denoise using sample
         if cond:
             conditioning = data.stats
         else: conditioning = None
-        samples = sample(denoise_model, conditioning, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=batch.size(0))
-    return torch.stack(samples)
+        samples = sample(denoise_model, conditioning, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=batch_size)
+        samples = torch.stack(samples)
+        all_samples.append(samples)
+    return torch.cat(all_samples, dim=1)
