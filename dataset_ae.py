@@ -264,8 +264,14 @@ class EASGDatasetAE(Dataset):
         # NB: given that we summed 198 to the object indices, the first line of edge_index
         # will always be zero in case of verb-object relationships
 
-    def get_frame(self, idx):
+    def get_annotation_id(self, idx):
         return self.graphs[idx]['frame_id']
+    
+    def get_video_id(self,idx):
+        return self.graphs[idx]['frame_id'][:36]
+    
+    def get_frame_number(self, idx):
+        return int(self.graphs[idx]['frame_id'][37:])
 
     def __getitem__(self, idx):
         # Extract data from the dictionary
