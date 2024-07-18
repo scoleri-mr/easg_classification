@@ -430,5 +430,5 @@ def get_samples(test_loader, diff_path, cond, timesteps, batch_size=64, latent_d
         if cond:
             conditioning = data.stats
         else: conditioning = None
-        samples = sample(denoise_model, conditioning, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=batch_size)
+        samples = sample(denoise_model, conditioning, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=batch.size(0))
     return torch.stack(samples)
