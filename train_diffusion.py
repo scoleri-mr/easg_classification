@@ -148,11 +148,11 @@ def main():
             for data in train_loader:
                 batch, verb_gt, rel_gt = data
                 batch = batch.to(device)
+                x_g = vae.encode(batch)
                 if args.cond:
                     conditioning = data.stats
                 else: conditioning = None
                 optimizer.zero_grad()
-                x_g = vae.encode(batch)
                 t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
                 # loss = p_losses(denoise_model, x_g, t, data.stats, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
                 loss = p_losses(denoise_model, x_g, t, None, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
@@ -167,10 +167,10 @@ def main():
             for data in val_loader:
                 batch, verb_gt, rel_gt = data
                 batch = batch.to(device)
+                x_g = vae.encode(batch)
                 if args.cond:
                     conditioning = data.stats
                 else: conditioning = None
-                x_g = vae.encode(batch)
                 t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
                 loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
                 val_loss_all += x_g.size(0) * loss.item()
