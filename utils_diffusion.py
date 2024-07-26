@@ -418,8 +418,7 @@ def load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_prop
     diffusion_model.load_state_dict(torch.load(diff_path)['model_state_dict'])
     return diffusion_model
 
-# TODO: add a function here to get encoded vectors starting from the trained model
-def get_samples(test_loader, diff_path, cond, timesteps, batch_size=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
+def visualize_samples(test_loader, diff_path, cond, timesteps, batch_size=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     betas = linear_beta_schedule(timesteps=timesteps)
     denoise_model = load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond)
@@ -438,3 +437,14 @@ def get_samples(test_loader, diff_path, cond, timesteps, batch_size=64, latent_d
         samples = torch.stack(samples)
         all_samples.append(samples)
     return torch.cat(all_samples, dim=1)
+
+def get_samples(diff_path, timesteps, num_samples=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    betas = linear_beta_schedule(timesteps=timesteps)
+    denoise_model = load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond)
+    denoise_model.to(device)
+    denoise_model.eval()
+    with torch.no_grad():
+        samples = sample(denoise_model, cond=None, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=num_samples)
+    return samples
+    

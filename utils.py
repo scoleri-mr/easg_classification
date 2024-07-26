@@ -53,14 +53,14 @@ def load_model(model_name, model_path, separate):
         print("wrong model name: choose 'vae' or 'ae'")
     return model
 
-def get_pred_and_gt(model_name, model, train_loader):
+def get_pred_and_gt(model_name, model, data_loader):
     verbs_output = []
     verbs_gt = []
     rels_output = []
     rels_gt = []
     model.eval()
     with torch.no_grad():
-        for data in train_loader:
+        for data in data_loader:
             batch, v_gt, rel_gt = data
             verbs_gt.append(v_gt)
             rels_gt.append(rel_gt)
@@ -85,6 +85,20 @@ def handle_verbs_out(verbs_output):
     # verbs_predictions = [el.item() for el in torch.topk(torch.cat(verbs_output, dim=0), 1).indices]
     verbs_predictions = [torch.argmax(el).item() for el in verbs_output]
     return verbs_predictions
+
+def get_pred_triplets(verbs_out, rels_out):
+    ''' build only predicted triplets'''
+    triplets_pred = []
+    
+    for i in range(len(verbs_out)):
+        # BUILD THE PREDICTED TRIPLETS
+        # apply softmax to the matrix to get the predicted objects and relationships
+        rel_probs = torch.sigmoid(rels_out[i].squeeze())
+        rel_binary = (rel_probs > 0.5).float()
+        obj_rels_pred = torch.nonzero(rel_binary[:,:13])
+        verb_pred = torch.argmax(verbs_out[i]).unsqueeze(0).unsqueeze(0).repeat(len(obj_rels_pred),1)
+        triplets_pred.append(torch.cat((verb_pred,obj_rels_pred), dim=1))
+    return triplets_pred
 
 def to_triplets(verbs_gt, rels_gt, verbs_out, rels_out):
     ''' function to build the triplets from models output'''
