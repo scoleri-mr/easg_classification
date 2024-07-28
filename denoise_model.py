@@ -40,7 +40,7 @@ def p_losses(denoise_model, x_start, t, cond, sqrt_alphas_cumprod, sqrt_one_minu
         raise NotImplementedError()
 
     return loss
-
+########    perchè così e non direttamente loss tra x_start e x_denoisata (sostituirebbe predicted_noise)
 
 # Position embeddings
 class SinusoidalPositionEmbeddings(nn.Module):

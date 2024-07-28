@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument('--epochs_denoise', type=int, default=100)
     parser.add_argument('--timesteps', type=int, default=100)
     parser.add_argument('--hidden_dim_denoise', type=int, default=256)
-    parser.add_argument('--n_layers_denoise', type=int, default=1)
+    parser.add_argument('--n_layers_denoise', type=int, default=3)
     parser.add_argument('--train_denoiser', action='store_true', default=True)
     parser.add_argument('--n_properties', type=int, default=15)
     parser.add_argument('--dim_condition', type=int, default=128)
@@ -88,24 +88,26 @@ def main():
         dim_condition = 0
 
     # original dataset only has train and validation, 
-    # further splitting the original 'train' dataset in train and test
     validation_dataset = EASGDatasetAE(path_annts, path_data, 'val', verbs, objs, rels)
-    dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
+    train_dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
     
-    indices = torch.randperm(len(dataset)).tolist()
-    train_len = int(0.8 * len(dataset))
-    train_indices = indices[:train_len]
-    test_indices = indices[train_len:]
-    train_dataset = torch.utils.data.Subset(dataset, train_indices)
-    test_dataset = torch.utils.data.Subset(dataset, test_indices)
+    # further splitting the original 'train' dataset in train and test
+    # dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
+    # indices = torch.randperm(len(dataset)).tolist()
+    # train_len = int(0.8 * len(dataset))
+    # train_indices = indices[:train_len]
+    # test_indices = indices[train_len:]
+    # train_dataset = torch.utils.data.Subset(dataset, train_indices)
+    # test_dataset = torch.utils.data.Subset(dataset, test_indices)
+    # test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(validation_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False)
     
     # load the variational autoencoder
     vae = load_model('vae', args.vae_path, separate=True)
     vae = vae.to(device)
+    vae.eval()
 
     # define beta schedule
     betas = linear_beta_schedule(timesteps=args.timesteps)
@@ -148,7 +150,8 @@ def main():
             for data in train_loader:
                 batch, verb_gt, rel_gt = data
                 batch = batch.to(device)
-                x_g = vae.encode(batch)
+                with torch.no_grad():
+                    x_g = vae.encode(batch)
                 if args.cond:
                     conditioning = data.stats
                 else: conditioning = None
@@ -161,25 +164,29 @@ def main():
                 train_count += x_g.size(0)
                 optimizer.step()
 
-            denoise_model.eval()
-            val_loss_all = 0
-            val_count = 0
-            for data in val_loader:
-                batch, verb_gt, rel_gt = data
-                batch = batch.to(device)
-                x_g = vae.encode(batch)
-                if args.cond:
-                    conditioning = data.stats
-                else: conditioning = None
-                t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
-                loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
-                val_loss_all += x_g.size(0) * loss.item()
-                val_count += x_g.size(0)
+            if epoch % 5 == 0 or epoch == args.epochs_denoise:
+                # call the evaluation
+                denoise_model.eval()
+                val_loss_all = 0
+                val_count = 0
+                for data in val_loader:
+                    batch, verb_gt, rel_gt = data
+                    batch = batch.to(device)
+                    with torch.no_grad():
+                        x_g = vae.encode(batch)
+                    if args.cond:
+                        conditioning = data.stats
+                    else: conditioning = None
+                    t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
+                    loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
+                    val_loss_all += x_g.size(0) * loss.item()
+                    val_count += x_g.size(0)
 
-            if epoch % 5 == 0:
+                # log info 
                 dt_t = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                 print('{} Epoch: {:04d}, Train Loss: {:.5f}, Val Loss: {:.5f}'.format(dt_t, epoch, train_loss_all/train_count, val_loss_all/val_count))
-                if args.wandb: wandb.log({"loss": loss})
+                if args.wandb: wandb.log({"train loss": train_loss_all/train_count})
+                if args.wandb: wandb.log({"val loss": val_loss_all/val_count})
 
                 # checkpoint
                 save_dir = f"./experiments/diffusion/{args.exp_name}/checkpoints"
