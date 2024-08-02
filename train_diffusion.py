@@ -135,7 +135,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion{args.epochs_denoise}_tsteps={args.timesteps}_lr={args.lr}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion{args.epochs_denoise}_tsteps={args.timesteps}_lr={args.lr}_nlayer={args.n_layers_denoise}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
@@ -202,7 +202,6 @@ def main():
 
     del train_loader, val_loader
 
-
     ground_truth = []
     pred = []
 
@@ -227,7 +226,6 @@ def main():
     #         stat_x = stat_x.detach().cpu().numpy()
     #         ground_truth.append(stat_x)
     #         pred.append(gen_stats(Gs_generated))
-
 
     # store_stats(ground_truth, pred, "y_stats.txt", "y_pred_stats.txt")
 
