@@ -179,12 +179,12 @@ def compare_statistics(list1, list2, names_list, list1_name:str='train', list2_n
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
 
     ax1.bar(names1, percentages1, color='cornflowerblue')
-    ax1.set_title(f'Top 10 Verbs Percentage in {list1_name}')
+    ax1.set_title(f'Top 10 {stat} Percentage in {list1_name}')
     ax1.set_xlabel(f'{stat}')
     ax1.set_ylabel('Percentage')
 
     ax2.bar(names2, percentages2, color='rosybrown')
-    ax2.set_title(f'Top 10 Verbs Percentage in {list2_name}')
+    ax2.set_title(f'Top 10 {stat} Percentage in {list2_name}')
     ax1.set_xlabel(f'{stat}')
     ax2.set_ylabel('Percentage')
 
