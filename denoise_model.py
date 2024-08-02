@@ -141,13 +141,16 @@ def p_sample(model, x, t, cond, t_index, betas):
 
 # Algorithm 2 (including returning all images)
 @torch.no_grad()
-def p_sample_loop(model, cond, timesteps, betas, shape):
+def p_sample_loop(model, cond, timesteps, betas, shape, start_noise):
     device = next(model.parameters()).device
 
     b = shape[0]
     # start from pure noise (for each example in the batch)
-    img = torch.randn(shape, device=device)
-    imgs = []
+    imgs = [] 
+    if start_noise == None:
+        img = torch.randn(shape, device=device)   
+    else:
+        img = start_noise
 
     for i in reversed(range(0, timesteps)):
         img = p_sample(model, img, torch.full((b,), i, device=device, dtype=torch.long), cond, i, betas)
@@ -156,5 +159,5 @@ def p_sample_loop(model, cond, timesteps, betas, shape):
     return imgs
 
 @torch.no_grad()
-def sample(model, cond, latent_dim, timesteps, betas, batch_size):
-    return p_sample_loop(model, cond, timesteps, betas, shape=(batch_size, latent_dim))
+def sample(model, cond, latent_dim, timesteps, betas, batch_size, start_noise = None):
+    return p_sample_loop(model, cond, timesteps, betas, shape=(batch_size, latent_dim), start_noise = start_noise)
