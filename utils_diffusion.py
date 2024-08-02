@@ -454,11 +454,8 @@ def evaluate_diffusion(test_loader, diff_path, vae_path, cond, timesteps, batch_
             if cond:
                 conditioning = data.stats
             else: conditioning = None
-            predicted_noise = denoise_model(x_noisy, t, cond)
-            samples = sample(denoise_model, conditioning, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=batch_size)
-            samples = torch.stack(samples)
-            all_samples.append(samples)
-    return torch.cat(all_samples, dim=1)
+            samples = sample(denoise_model, conditioning, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=batch_size, start_noise=x_noisy)
+    return samples[-1]
 
 def get_denoised_samples(diff_path, timesteps, num_samples=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
     device = "cuda" if torch.cuda.is_available() else "cpu"

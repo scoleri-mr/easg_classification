@@ -142,3 +142,56 @@ def save_checkpoint(model, optimizer, epoch, path):
     }
     torch.save(checkpoint, path)
     print(f'Checkpoint saved to {path}')
+
+def compare_statistics(list1, list2, names_list, list1_name:str='train', list2_name:str='validation',  stat:str = 'verb', other=False):
+    ''' function used to compare train and validation statistics or train and samples from diffusion models''' 
+    import matplotlib.pyplot as plt
+    from collections import Counter
+    import pandas as pd
+
+    # Create Counters for both lists
+    c1 = Counter(list1)
+    c2 = Counter(list2)
+
+    # Extract the top 10 elements from each list
+    top10_1 = c1.most_common(10)
+    top10_2 = c2.most_common(10)
+
+    if other:
+        # Calculate the sum of all other
+        other_count_1 = sum(c1.values()) - sum(count for _,count in top10_1)
+        other_count_2 = sum(c2.values()) - sum(count for _,count in top10_2)
+
+        top10_1.append(('Other', other_count_1))
+        top10_2.append(('Other', other_count_2))
+
+    # Get the total counts for calculating percentages
+    total_count_1 = sum(c1.values())
+    total_count_2 = sum(c2.values())
+
+    # Get the elements names and their percentages
+    names1 = [names_list[el[0]] if el[0] != 'Other' else 'Other' for el in top10_1]
+    percentages1 = [el[1] / total_count_1 * 100 for el in top10_1]
+    names2 = [names_list[el[0]] if el[0] != 'Other' else 'Other' for el in top10_2]
+    percentages2 = [el[1] / total_count_2 * 100 for el in top10_2]
+
+    # Plot the bar charts separately
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+
+    ax1.bar(names1, percentages1, color='cornflowerblue')
+    ax1.set_title(f'Top 10 Verbs Percentage in {list1_name}')
+    ax1.set_xlabel(f'{stat}')
+    ax1.set_ylabel('Percentage')
+
+    ax2.bar(names2, percentages2, color='rosybrown')
+    ax2.set_title(f'Top 10 Verbs Percentage in {list2_name}')
+    ax1.set_xlabel(f'{stat}')
+    ax2.set_ylabel('Percentage')
+
+    # Rotate x-axis labels for better readability
+    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    # Adjust layout and show plot
+    plt.tight_layout()
+    plt.show()
