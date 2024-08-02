@@ -16,7 +16,8 @@ from torch_geometric.data import Data
 from grakel.utils import graph_from_networkx
 from grakel.kernels import WeisfeilerLehman, VertexHistogram
 
-from denoise_model import sample, DenoiseNN
+from denoise_model import sample, DenoiseNN, q_sample
+from utils import load_model
 
 def construct_nx_from_adj(adj):
     G = nx.from_numpy_array(adj, create_using=nx.Graph)
@@ -418,27 +419,48 @@ def load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_prop
     diffusion_model.load_state_dict(torch.load(diff_path)['model_state_dict'])
     return diffusion_model
 
-def visualize_samples(test_loader, diff_path, cond, timesteps, batch_size=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
+def evaluate_diffusion(test_loader, diff_path, vae_path, cond, timesteps, batch_size=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
     device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Load the variational autoencoder
+    vae = load_model('vae', vae_path, separate=True)
+    vae = vae.to(device)
+    vae.eval()
+    
+    # Define alphas and beta scheduler
     betas = linear_beta_schedule(timesteps=timesteps)
+    alphas = 1. - betas
+    alphas_cumprod = torch.cumprod(alphas, axis=0)
+    alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+    sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
+
+    # calculations for diffusion q(x_t | x_{t-1}) and others
+    sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
+    sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
+
+    # Load the diffusion model
     denoise_model = load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond)
     denoise_model.eval()
+
     all_samples = []
-    for k, data in enumerate(tqdm(test_loader, desc='Processing test set',)):
-        batch, verb_gt, rel_gt = data
-        batch = batch.to(device)
-        # TODO: embedding
-        # TODO: add noise
-        # TODO: denoise using sample
-        if cond:
-            conditioning = data.stats
-        else: conditioning = None
-        samples = sample(denoise_model, conditioning, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=batch_size)
-        samples = torch.stack(samples)
-        all_samples.append(samples)
+
+    with torch.no_grad():
+        for k, data in enumerate(tqdm(test_loader, desc='Processing test set',)):
+            batch, verb_gt, rel_gt = data
+            batch = batch.to(device)
+            x_g = vae.encode(batch)
+            t = torch.randint(0, timesteps, (x_g.size(0),), device=device).long()
+            x_noisy = q_sample(x_g, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod)
+            if cond:
+                conditioning = data.stats
+            else: conditioning = None
+            predicted_noise = denoise_model(x_noisy, t, cond)
+            samples = sample(denoise_model, conditioning, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=batch_size)
+            samples = torch.stack(samples)
+            all_samples.append(samples)
     return torch.cat(all_samples, dim=1)
 
-def get_samples(diff_path, timesteps, num_samples=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
+def get_denoised_samples(diff_path, timesteps, num_samples=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     betas = linear_beta_schedule(timesteps=timesteps)
     denoise_model = load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond)
@@ -446,5 +468,5 @@ def get_samples(diff_path, timesteps, num_samples=64, latent_dim=256, n_layers=3
     denoise_model.eval()
     with torch.no_grad():
         samples = sample(denoise_model, cond=None, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=num_samples)
-    return samples
+    return samples[-1]
     
