@@ -135,7 +135,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion{args.epochs_denoise}_tsteps={args.timesteps}_lr={args.lr}_nlayer={args.n_layers_denoise}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion{args.epochs_denoise}_tsteps={args.timesteps}_lr={args.lr}_nlayer={args.n_layers_denoise}_lnorm_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
