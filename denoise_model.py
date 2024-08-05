@@ -60,9 +60,10 @@ class SinusoidalPositionEmbeddings(nn.Module):
 
 # Denoise model
 class DenoiseNN(nn.Module):
-    def __init__(self, input_dim, hidden_dim, n_layers, n_cond, d_cond):
+    def __init__(self, input_dim, hidden_dim, n_layers, n_cond, d_cond, norm_type):
         super(DenoiseNN, self).__init__()
         self.n_layers = n_layers
+        self.norm_type = norm_type
         if n_cond>0 and d_cond>0:
             self.n_cond = n_cond
             self.d_cond = d_cond
@@ -83,11 +84,14 @@ class DenoiseNN(nn.Module):
         mlp_layers.append(nn.Linear(hidden_dim, input_dim))
         self.mlp = nn.ModuleList(mlp_layers)
 
-        # bn_layers = [nn.BatchNorm1d(hidden_dim) for i in range(n_layers-1)]
-        # self.bn = nn.ModuleList(bn_layers)
-
-        ln_layers = [nn.LayerNorm(hidden_dim) for i in range(n_layers-1)]
-        self.ln = nn.ModuleList(ln_layers)
+        if self.norm_type == 'batch':
+            n_layers = [nn.BatchNorm1d(hidden_dim) for i in range(n_layers-1)]
+            self.bn = nn.ModuleList(n_layers)
+        elif self.norm_type == 'layer':
+            n_layers = [nn.LayerNorm(hidden_dim) for i in range(n_layers-1)]
+            self.ln = nn.ModuleList(n_layers)
+        else:
+            raise Exception("Wrong normalization layer. Choose between 'batch' and 'layer'.")
 
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
@@ -103,8 +107,10 @@ class DenoiseNN(nn.Module):
             if cond:
                 x = torch.cat((x, cond), dim=1)
             x = self.relu(self.mlp[i](x))+t
-            # x = self.bn[i](x)
-            x = self.ln[i](x)
+            if self.norm_type == 'layer':
+                x = self.ln[i](x)
+            elif self.norm_type == 'batch':
+                x = self.bn[i](x)
         x = self.mlp[self.n_layers-1](x)
         return x
 

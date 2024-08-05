@@ -414,12 +414,12 @@ def z_score_norm(y, y_pred, mean, std, eps=1e-10):
     norm_error = np.sum(norm_error)/15
     return mse, mae, norm_error
 
-def load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond):
-    diffusion_model = DenoiseNN(latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond).to('cuda')
+def load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond, norm_type):
+    diffusion_model = DenoiseNN(latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond, norm_type).to('cuda')
     diffusion_model.load_state_dict(torch.load(diff_path)['model_state_dict'])
     return diffusion_model
 
-def evaluate_diffusion(test_loader, diff_path, vae_path, cond, timesteps, batch_size=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
+def evaluate_diffusion(test_loader, diff_path, vae_path, cond, timesteps, norm_type, batch_size=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Load the variational autoencoder
@@ -439,7 +439,7 @@ def evaluate_diffusion(test_loader, diff_path, vae_path, cond, timesteps, batch_
     sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
 
     # Load the diffusion model
-    denoise_model = load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond)
+    denoise_model = load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond, norm_type)
     denoise_model.eval()
 
     all_samples = []
@@ -457,10 +457,10 @@ def evaluate_diffusion(test_loader, diff_path, vae_path, cond, timesteps, batch_
             samples = sample(denoise_model, conditioning, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=batch_size, start_noise=x_noisy)
     return samples[-1]
 
-def get_denoised_samples(diff_path, timesteps, num_samples=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
+def get_denoised_samples(diff_path, timesteps, norm_type, num_samples=64, latent_dim=256, n_layers=3, hidden_dim_diffusion=256, n_properties=0, dim_cond=0):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     betas = linear_beta_schedule(timesteps=timesteps)
-    denoise_model = load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond)
+    denoise_model = load_diffusion(diff_path, latent_dim, hidden_dim_diffusion, n_layers, n_properties, dim_cond, norm_type)
     denoise_model.to(device)
     denoise_model.eval()
     with torch.no_grad():

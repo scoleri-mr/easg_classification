@@ -54,6 +54,7 @@ def parse_args():
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
     parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/VAE1000_sep=True_fromae=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719844098/checkpoints/last.ckpt')
+    parser.add_argument('--norm_type', type=str, help='normalization layer for diffusion model')
     args = parser.parse_args()
     return args
 
