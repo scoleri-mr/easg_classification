@@ -25,7 +25,7 @@ def set_wandb_config(num_epochs, hidden_projection_dim, projection_dim,
 
     return config
 
-def load_model(model_name, model_path, separate):
+def load_model(model_name, model_path, separate, output_dim=256):
     import torch
     verb_dim = 2304
     obj_dim = 1024
@@ -38,8 +38,6 @@ def load_model(model_name, model_path, separate):
     graph_type ='gcn'
     dropout_prob = 0.2
     use_focal_loss=True
-
-    output_dim = 256
 
     if model_name=='vae':
         from autoencoder import EASGvae

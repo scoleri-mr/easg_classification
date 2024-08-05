@@ -38,7 +38,7 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--latent_dim', type=int, default=512)
+    parser.add_argument('--latent_dim', type=int, default=256)
     parser.add_argument('--n_max_nodes', type=int, default=100)
     parser.add_argument('--spectral_emb_dim', type=int, default=10)
     parser.add_argument('--epochs_denoise', type=int, default=100)
@@ -54,7 +54,7 @@ def parse_args():
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
     parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt')
-    parser.add_argument('--norm_type', type=str, help='normalization layer for diffusion model')
+    parser.add_argument('--norm_type', type=str, help='normalization layer for diffusion model', default='layer')
     args = parser.parse_args()
     return args
 
@@ -91,22 +91,12 @@ def main():
     # original dataset only has train and validation, 
     validation_dataset = EASGDatasetAE(path_annts, path_data, 'val', verbs, objs, rels)
     train_dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
-    
-    # further splitting the original 'train' dataset in train and test
-    # dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
-    # indices = torch.randperm(len(dataset)).tolist()
-    # train_len = int(0.8 * len(dataset))
-    # train_indices = indices[:train_len]
-    # test_indices = indices[train_len:]
-    # train_dataset = torch.utils.data.Subset(dataset, train_indices)
-    # test_dataset = torch.utils.data.Subset(dataset, test_indices)
-    # test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(validation_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False)
     
     # load the variational autoencoder
-    vae = load_model('vae', args.vae_path, separate=True)
+    vae = load_model('vae', args.vae_path, separate=True, output_dim=args.latent_dim)
     vae = vae.to(device)
     vae.eval()
 
