@@ -38,7 +38,7 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--latent_dim', type=int, default=256)
+    parser.add_argument('--latent_dim', type=int, default=512)
     parser.add_argument('--n_max_nodes', type=int, default=100)
     parser.add_argument('--spectral_emb_dim', type=int, default=10)
     parser.add_argument('--epochs_denoise', type=int, default=100)
@@ -53,7 +53,7 @@ def parse_args():
     parser.add_argument('--wandb_proj', type=str, default='diffusion')
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
-    parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/VAE1000_sep=True_fromae=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719844098/checkpoints/last.ckpt')
+    parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt')
     parser.add_argument('--norm_type', type=str, help='normalization layer for diffusion model')
     args = parser.parse_args()
     return args
@@ -136,7 +136,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion{args.epochs_denoise}_tsteps={args.timesteps}_lr={args.lr}_nlayer={args.n_layers_denoise}_lnorm_{str(int(time.time()))}"
+            args.exp_name = f"diffusion{args.epochs_denoise}_tsteps={args.timesteps}_lr={args.lr}_nlayer={args.n_layers_denoise}_lnorm_ldim={args.latent_dim}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
@@ -198,60 +198,6 @@ def main():
     elif args.evaluation:
         checkpoint = torch.load(args.diffusion_path)
         denoise_model.load_state_dict(checkpoint['model_state_dict'])
-
-    denoise_model.eval()
-
-    del train_loader, val_loader
-
-    ground_truth = []
-    pred = []
-
-
-    # for k, data in enumerate(tqdm(test_loader, desc='Processing test set',)):
-    #     batch, verb_gt, rel_gt = data
-    #     batch = batch.to(device)
-    #     if args.cond:
-    #         conditioning = data.stats
-    #     else: conditioning = None
-    #     samples = sample(denoise_model, conditioning, latent_dim=args.latent_dim, timesteps=args.timesteps, betas=betas, batch_size=batch.size(0))
-    #     x_sample = samples[-1]
-    #     adj = vae.decode(x_sample)
-    #     stat_d = torch.reshape(stat, (-1, args.n_properties))
-
-    #     for i in range(stat.size(0)):
-    #         #adj = autoencoder.decode_mu(samples[random_index])
-    #         # Gs_generated.append(construct_nx_from_adj(adj[i,:,:].detach().cpu().numpy()))
-    #         stat_x = stat_d[i]
-
-    #         Gs_generated = construct_nx_from_adj(adj[i,:,:].detach().cpu().numpy())
-    #         stat_x = stat_x.detach().cpu().numpy()
-    #         ground_truth.append(stat_x)
-    #         pred.append(gen_stats(Gs_generated))
-
-    # store_stats(ground_truth, pred, "y_stats.txt", "y_pred_stats.txt")
-
-    # # stats = torch.cat(stats, dim=0).detach().cpu().numpy()
-
-    # mean, std = calculate_mean_std(ground_truth)
-
-    # mse, mae, norm_error = evaluation_metrics(ground_truth, pred)
-
-    # mse_all, mae_all, norm_error_all, mean_perc_error_all = z_score_norm(ground_truth, pred, mean, std)
-
-
-    # feats_lst = ["number of nodes", "number of edges", "density","max degree", "min degree", "avg degree","assortativity","triangles","avg triangles","max triangles","avg clustering coef", "global clustering coeff", "max k-core", "communities","diameter"]
-    # id2feats = {i:feats_lst[i] for i in range(len(mse))}
-
-    # print("MSE for the samples in all features is equal to: "+str(mse_all))
-    # print("MAE for the samples in all features is equal to: "+str(mae_all))
-    # print("Symmetric Mean absolute Percentage Error for the samples for all features is equal to: "+str(norm_error_all*100))
-    # print("=" * 100)
-
-    # for i in range(len(mse)):
-    #     print("MSE for the samples for the feature \""+str(id2feats[i])+"\" is equal to: "+str(mse[i]))
-    #     print("MAE for the samples for the feature \""+str(id2feats[i])+"\" is equal to: "+str(mae[i]))
-    #     print("Symmetric Mean absolute Percentage Error for the samples for the feature \""+str(id2feats[i])+"\" is equal to: "+str(norm_error[i]*100))
-    #     print("=" * 100)
 
 if __name__ == "__main__":
     main()
