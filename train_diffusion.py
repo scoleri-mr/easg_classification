@@ -126,7 +126,7 @@ def main():
     # calculations for posterior q(x_{t-1} | x_t, x_0)
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
-    denoise_model = DenoiseNN(input_dim=args.latent_dim, hidden_dim=args.hidden_dim_denoise, n_layers=args.n_layers_denoise, n_cond=n_properties, d_cond=dim_condition).to(device)
+    denoise_model = DenoiseNN(input_dim=args.latent_dim, hidden_dim=args.hidden_dim_denoise, n_layers=args.n_layers_denoise, n_cond=n_properties, d_cond=dim_condition, norm_type=args.norm_type).to(device)
     optimizer = torch.optim.Adam(denoise_model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.1)
 
