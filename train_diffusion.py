@@ -42,7 +42,7 @@ def parse_args():
     parser.add_argument('--latent_dim', type=int, default=256)
     parser.add_argument('--n_max_nodes', type=int, default=100)
     parser.add_argument('--spectral_emb_dim', type=int, default=10)
-    parser.add_argument('--epochs_denoise', type=int, default=100)
+    parser.add_argument('--epochs_denoise', type=int, default=2000)
     parser.add_argument('--timesteps', type=int, default=100)
     parser.add_argument('--hidden_dim_denoise', type=int, default=256)
     parser.add_argument('--n_layers_denoise', type=int, default=3)
@@ -51,12 +51,14 @@ def parse_args():
     parser.add_argument('--dim_condition', type=int, default=128)
     parser.add_argument('--cond', action='store_true', help='If specified use conditional generation, otherwise conditioning is switched off.')
     parser.add_argument('--wandb', action='store_true', help="If specified enables wandb logging")
-    parser.add_argument('--wandb_proj', type=str, default='diffusion')
+    parser.add_argument('--wandb_proj', type=str, default='diffusion_new')
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
     parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt')
     parser.add_argument('--norm_type', type=str, help='normalization layer for diffusion model', default='layer')
-    parser.add_argument('--scheduler_type', type=str, help="Choose 'step' for StepLR and 'warmup' for CosineAnnealingWarmupRestarts. Use lr as parameter for max_lr in warmup.")
+    parser.add_argument('--scheduler_type', type=str, help="Choose 'step' for StepLR and 'warmup' for CosineAnnealingWarmupRestarts. Use lr as parameter for max_lr in warmup.", default='step')
+    parser.add_argument('--min_lr', type=float, help="Minimum learning rate for CosineAnnealingWarmupRestarts", default=0.00001)
+    parser.add_argument('--loss_type', type=str, help="Choose between 'huber' and 'l2'")
     args = parser.parse_args()
     return args
 
@@ -123,7 +125,7 @@ def main():
     if args.scheduler_type == 'step':
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.1)
     elif args.scheduler_type == 'warmup':
-        scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=args.num_epochs*len(train_loader), cycle_mult=1.0, max_lr=args.lr, min_lr=0.00001, warmup_steps=int(args.num_epochs*len(train_loader)/4))
+        scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=args.epochs_denoise*len(train_loader), cycle_mult=1.0, max_lr=args.lr, min_lr=args.min_lr, warmup_steps=int(args.epochs_denoise*len(train_loader)/4))
     else: 
         raise Exception("Wrong scheduler type, choose between'step' and 'warmup'")
 
@@ -133,7 +135,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion{args.epochs_denoise}_tsteps={args.timesteps}_lr={args.lr}_nlayer={args.n_layers_denoise}_lnorm_ldim={args.latent_dim}_sch={args.scheduler_type}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion_tsteps={args.timesteps}_nlayer={args.n_layers_denoise}_ldim={args.latent_dim}_lr={args.lr}_sch={args.scheduler_type}_loss={args.loss_type}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
@@ -155,12 +157,15 @@ def main():
                 else: conditioning = None
                 optimizer.zero_grad()
                 t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
-                # loss = p_losses(denoise_model, x_g, t, data.stats, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
-                loss = p_losses(denoise_model, x_g, t, None, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
+                # loss = p_losses(denoise_model, x_g, t, data.stats, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type)
+                loss = p_losses(denoise_model, x_g, t, None, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type)
                 loss.backward()
                 train_loss_all += x_g.size(0) * loss.item()
                 train_count += x_g.size(0)
                 optimizer.step()
+                if args.scheduler_type=='warmup':
+                    scheduler.step()
+                    if args.wandb: wandb.log({"learning_rate": scheduler.get_lr()[0]})
 
             if epoch % 5 == 0 or epoch == args.epochs_denoise:
                 # call the evaluation
@@ -176,7 +181,7 @@ def main():
                         conditioning = data.stats
                     else: conditioning = None
                     t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
-                    loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type="huber")
+                    loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type)
                     val_loss_all += x_g.size(0) * loss.item()
                     val_count += x_g.size(0)
 
@@ -190,7 +195,10 @@ def main():
                 save_dir = f"./experiments/diffusion/{args.exp_name}/checkpoints"
                 os.makedirs(save_dir, exist_ok=True)
                 save_checkpoint(model=denoise_model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
-            scheduler.step()
+            
+            if args.scheduler_type == 'step':
+                scheduler.step()
+                if args.wandb: wandb.log({"learning_rate": scheduler.get_lr()[0]})
 
     elif args.evaluation:
         checkpoint = torch.load(args.diffusion_path)
