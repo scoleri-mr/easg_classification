@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument('--n_properties', type=int, default=15)
     parser.add_argument('--dim_condition', type=int, default=128)
     parser.add_argument('--cond', action='store_true', help='If specified use conditional generation, otherwise conditioning is switched off.')
-    parser.add_argument('--wandb', action='store_true', help="If specified enables wandb logging")
+    parser.add_argument('--no_wandb', action='store_false', dest='wandb', help="If specified disables wandb logging")
     parser.add_argument('--wandb_proj', type=str, default='diffusion_new')
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
@@ -192,7 +192,7 @@ def main():
                 if args.wandb: wandb.log({"val loss": val_loss_all/val_count})
 
                 # checkpoint
-                save_dir = f"./experiments/diffusion/{args.exp_name}/checkpoints"
+                save_dir = f"./experiments/diffusion_new/{args.exp_name}/checkpoints"
                 os.makedirs(save_dir, exist_ok=True)
                 save_checkpoint(model=denoise_model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
             
