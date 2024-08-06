@@ -27,6 +27,7 @@ from dataset_ae import EASGDatasetAE
 from utils import load_model, save_checkpoint
 
 from torch.utils.data import Subset
+from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 np.random.seed(13)
 
 # Argument parser
@@ -55,6 +56,7 @@ def parse_args():
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
     parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt')
     parser.add_argument('--norm_type', type=str, help='normalization layer for diffusion model', default='layer')
+    parser.add_argument('--scheduler_type', type=str, help="Choose 'step' for StepLR and 'warmup' for CosineAnnealingWarmupRestarts. Use lr as parameter for max_lr in warmup.")
     args = parser.parse_args()
     return args
 
@@ -92,7 +94,7 @@ def main():
     validation_dataset = EASGDatasetAE(path_annts, path_data, 'val', verbs, objs, rels)
     train_dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
     val_loader = DataLoader(validation_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False)
     
     # load the variational autoencoder
@@ -118,7 +120,12 @@ def main():
 
     denoise_model = DenoiseNN(input_dim=args.latent_dim, hidden_dim=args.hidden_dim_denoise, n_layers=args.n_layers_denoise, n_cond=n_properties, d_cond=dim_condition, norm_type=args.norm_type).to(device)
     optimizer = torch.optim.Adam(denoise_model.parameters(), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.1)
+    if args.scheduler_type == 'step':
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.1)
+    elif args.scheduler_type == 'warmup':
+        scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=args.num_epochs*len(train_loader), cycle_mult=1.0, max_lr=args.lr, min_lr=0.00001, warmup_steps=int(args.num_epochs*len(train_loader)/4))
+    else: 
+        raise Exception("Wrong scheduler type, choose between'step' and 'warmup'")
 
     trainable_params_diff = sum(p.numel() for p in denoise_model.parameters() if p.requires_grad)
     print("Number of Diffusion model's trainable parameters: "+str(trainable_params_diff))
@@ -126,7 +133,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion{args.epochs_denoise}_tsteps={args.timesteps}_lr={args.lr}_nlayer={args.n_layers_denoise}_lnorm_ldim={args.latent_dim}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion{args.epochs_denoise}_tsteps={args.timesteps}_lr={args.lr}_nlayer={args.n_layers_denoise}_lnorm_ldim={args.latent_dim}_sch={args.scheduler_type}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
