@@ -51,7 +51,7 @@ def parse_args():
     parser.add_argument('--dim_condition', type=int, default=128)
     parser.add_argument('--cond', action='store_true', help='If specified use conditional generation, otherwise conditioning is switched off.')
     parser.add_argument('--no_wandb', action='store_false', dest='wandb', help="If specified disables wandb logging")
-    parser.add_argument('--wandb_proj', type=str, default='diffusion_new')
+    parser.add_argument('--wandb_proj', type=str, default='diffusion_cond')
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
     parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt')
@@ -135,7 +135,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion_tsteps={args.timesteps}_nlayer={args.n_layers_denoise}_ldim={args.latent_dim}_lr={args.lr}_sch={args.scheduler_type}_loss={args.loss_type}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion_tsteps={args.timesteps}_nlayer={args.n_layers_denoise}_ldim={args.latent_dim}_lr={args.lr}_sch={args.scheduler_type}_loss={args.loss_type}_dcond={args.dim_condition}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
@@ -153,12 +153,12 @@ def main():
                 with torch.no_grad():
                     x_g = vae.encode(batch)
                 if args.cond:
-                    conditioning = data.stats
+                    conditioning = batch.stats
                 else: conditioning = None
                 optimizer.zero_grad()
                 t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
                 # loss = p_losses(denoise_model, x_g, t, data.stats, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type)
-                loss = p_losses(denoise_model, x_g, t, None, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type)
+                loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type)
                 loss.backward()
                 train_loss_all += x_g.size(0) * loss.item()
                 train_count += x_g.size(0)
@@ -178,7 +178,7 @@ def main():
                     with torch.no_grad():
                         x_g = vae.encode(batch)
                     if args.cond:
-                        conditioning = data.stats
+                        conditioning = batch.stats
                     else: conditioning = None
                     t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
                     loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type)

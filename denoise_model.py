@@ -98,13 +98,13 @@ class DenoiseNN(nn.Module):
 
     
     def forward(self, x, t, cond):
-        if cond:
+        if cond is not None:
             cond = torch.reshape(cond, (-1, self.n_cond))
             cond = torch.nan_to_num(cond, nan=-100.0)
             cond = self.cond_mlp(cond)
         t = self.time_mlp(t)
         for i in range(self.n_layers-1):
-            if cond:
+            if cond is not None:
                 x = torch.cat((x, cond), dim=1)
             x = self.relu(self.mlp[i](x))+t
             if self.norm_type == 'layer':
@@ -155,7 +155,6 @@ def p_sample_loop(model, cond, timesteps, betas, shape, start_noise):
     device = next(model.parameters()).device
 
     b = shape[0]
-    # start from pure noise (for each example in the batch)
     imgs = [] 
     if start_noise == None:
         img = torch.randn(shape, device=device)   

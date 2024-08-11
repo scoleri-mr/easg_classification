@@ -318,6 +318,7 @@ class EASGDatasetAE(Dataset):
             
         # Create PyTorch Geometric Data object
         data = Data(x=x, edge_index=edge_index)
+        data.stats = clip_features
         
         # TODO: don't need to encapsulate the GTs in pytorch geometric structure, these have the same size for each elem. in batch!
         return data, verb_idx, gt_rels
