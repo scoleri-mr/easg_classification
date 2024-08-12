@@ -51,7 +51,7 @@ def load_model(model_name, model_path, separate, output_dim=256):
         print("wrong model name: choose 'vae' or 'ae'")
     return model
 
-def get_pred_and_gt(model_name, model, data_loader):
+def get_pred_and_gt(model_name, model, data_loader, device='cuda'):
     verbs_output = []
     verbs_gt = []
     rels_output = []
@@ -60,6 +60,7 @@ def get_pred_and_gt(model_name, model, data_loader):
     with torch.no_grad():
         for data in data_loader:
             batch, v_gt, rel_gt = data
+            batch = batch.to(device)
             verbs_gt.append(v_gt)
             rels_gt.append(rel_gt)
             if model_name=='vae':
