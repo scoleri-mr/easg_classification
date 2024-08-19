@@ -51,7 +51,7 @@ def parse_args():
     parser.add_argument('--dim_condition', type=int, default=128)
     parser.add_argument('--cond', action='store_true', help='If specified use conditional generation, otherwise conditioning is switched off.')
     parser.add_argument('--no_wandb', action='store_false', dest='wandb', help="If specified disables wandb logging")
-    parser.add_argument('--wandb_proj', type=str, default='diffusion_cond')
+    parser.add_argument('--wandb_proj', type=str, default='diffusion_recon')
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
     parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt')
@@ -59,6 +59,7 @@ def parse_args():
     parser.add_argument('--scheduler_type', type=str, help="Choose 'step' for StepLR and 'warmup' for CosineAnnealingWarmupRestarts. Use lr as parameter for max_lr in warmup.", default='warmup')
     parser.add_argument('--min_lr', type=float, help="Minimum learning rate for CosineAnnealingWarmupRestarts", default=0.00001)
     parser.add_argument('--loss_type', type=str, help="Choose between 'huber' and 'l2'", default='huber')
+    parser.add_argument('--train_mode', type=str, default='noise', help="Select diffusion objective: 'reconstruct' to predict reconstructed samples, 'noise' to predict noise.")
     args = parser.parse_args()
     return args
 
@@ -91,6 +92,14 @@ def main():
         print('No conditioning applied.')
         n_properties = 0
         dim_condition = 0
+
+    # check train mode:
+    if args.train_mode == 'noise':
+        print("Training with noise as objective function.")
+    elif args.train_mode == 'reconstruct':
+        print("Training with denoised sample as objective function.")
+    else: 
+        raise Exception("Wrong taining mode.")
 
     # original dataset only has train and validation, 
     validation_dataset = EASGDatasetAE(path_annts, path_data, 'val', verbs, objs, rels)
@@ -135,7 +144,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion_tsteps={args.timesteps}_nlayer={args.n_layers_denoise}_ldim={args.latent_dim}_lr={args.lr}_sch={args.scheduler_type}_loss={args.loss_type}_dcond={args.dim_condition}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion_tsteps={args.timesteps}_nlayer={args.n_layers_denoise}_ldim={args.latent_dim}_lr={args.lr}_sch={args.scheduler_type}_loss={args.loss_type}_dcond={args.dim_condition}_mode={args.train_mode}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
@@ -157,8 +166,7 @@ def main():
                 else: conditioning = None
                 optimizer.zero_grad()
                 t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
-                # loss = p_losses(denoise_model, x_g, t, data.stats, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type)
-                loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type)
+                loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type, mode=args.train_mode)
                 loss.backward()
                 train_loss_all += x_g.size(0) * loss.item()
                 train_count += x_g.size(0)
@@ -192,7 +200,7 @@ def main():
                 if args.wandb: wandb.log({"val loss": val_loss_all/val_count})
 
                 # checkpoint
-                save_dir = f"./experiments/diffusion_new/{args.exp_name}/checkpoints"
+                save_dir = f"./experiments/diffusion_recon/{args.exp_name}/checkpoints"
                 os.makedirs(save_dir, exist_ok=True)
                 save_checkpoint(model=denoise_model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
             

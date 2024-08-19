@@ -23,24 +23,37 @@ def q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noi
 
 
 # Loss function for denoising
-def p_losses(denoise_model, x_start, t, cond, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, loss_type="l1"):
+def p_losses(denoise_model, x_start, t, cond, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, loss_type="l1", mode='noise'):
     if noise is None:
         noise = torch.randn_like(x_start)
 
-    x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=noise)
-    predicted_noise = denoise_model(x_noisy, t, cond)
+    x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod)
+    out_pred = denoise_model(x_noisy, t, cond)  # if reconstruct=True out_pred will cointain the reconstructed x, otherwise the predicted noise
 
-    if loss_type == 'l1':
-        loss = F.l1_loss(noise, predicted_noise)
-    elif loss_type == 'l2':
-        loss = F.mse_loss(noise, predicted_noise)
-    elif loss_type == "huber":
-        loss = F.smooth_l1_loss(noise, predicted_noise)
+    if mode=='reconstruct':
+        # Reconstuction loss: predict the denoised sample
+        if loss_type == 'l1':
+            loss = F.l1_loss(x_start, out_pred)
+        elif loss_type == 'l2':
+            loss = F.mse_loss(x_start, out_pred)
+        elif loss_type == "huber":
+            loss = F.smooth_l1_loss(x_start, out_pred)
+        else:
+            raise NotImplementedError()
+    elif mode=='noise':
+        # Noise prediction loss: predict the noise
+        if loss_type == 'l1':
+            loss = F.l1_loss(noise, out_pred)
+        elif loss_type == 'l2':
+            loss = F.mse_loss(noise, out_pred)
+        elif loss_type == "huber":
+            loss = F.smooth_l1_loss(noise, out_pred)
+        else:
+            raise NotImplementedError()
     else:
-        raise NotImplementedError()
+        raise ValueError(f"Unknown mode {mode}")
 
     return loss
-########    perchè così e non direttamente loss tra x_start e x_denoisata (sostituirebbe predicted_noise)
 
 # Position embeddings
 class SinusoidalPositionEmbeddings(nn.Module):
@@ -115,43 +128,49 @@ class DenoiseNN(nn.Module):
         return x
 
 @torch.no_grad()
-def p_sample(model, x, t, cond, t_index, betas):
-    # define alphas
-    alphas = 1. - betas
-    alphas_cumprod = torch.cumprod(alphas, axis=0)
-    alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
-    sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
+def p_sample(model, x, t, cond, t_index, betas, mode):
 
-    # calculations for diffusion q(x_t | x_{t-1}) and others
-    sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
-    sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
+    if mode=='reconstruct':
+        # Direct reconstruction
+        return model(x,t,cond)
+    
+    else: 
+        # define alphas
+        alphas = 1. - betas
+        alphas_cumprod = torch.cumprod(alphas, axis=0)
+        alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+        sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
 
-    # calculations for posterior q(x_{t-1} | x_t, x_0)
-    posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
+        # calculations for diffusion q(x_t | x_{t-1}) and others
+        sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
+        sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
 
-    betas_t = extract(betas, t, x.shape)
-    sqrt_one_minus_alphas_cumprod_t = extract(
-        sqrt_one_minus_alphas_cumprod, t, x.shape
-    )
-    sqrt_recip_alphas_t = extract(sqrt_recip_alphas, t, x.shape)
+        # calculations for posterior q(x_{t-1} | x_t, x_0)
+        posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
-    # Equation 11 in the paper
-    # Use our model (noise predictor) to predict the mean
-    model_mean = sqrt_recip_alphas_t * (
-        x - betas_t * model(x, t, cond) / sqrt_one_minus_alphas_cumprod_t
-    )
+        betas_t = extract(betas, t, x.shape)
+        sqrt_one_minus_alphas_cumprod_t = extract(
+            sqrt_one_minus_alphas_cumprod, t, x.shape
+        )
+        sqrt_recip_alphas_t = extract(sqrt_recip_alphas, t, x.shape)
 
-    if t_index == 0:
-        return model_mean
-    else:
-        posterior_variance_t = extract(posterior_variance, t, x.shape)
-        noise = torch.randn_like(x)
-        # Algorithm 2 line 4:
-        return model_mean + torch.sqrt(posterior_variance_t) * noise
+        # Equation 11 in the paper
+        # Use our model (noise predictor) to predict the mean
+        model_mean = sqrt_recip_alphas_t * (
+            x - betas_t * model(x, t, cond) / sqrt_one_minus_alphas_cumprod_t
+        )
+
+        if t_index == 0:
+            return model_mean
+        else:
+            posterior_variance_t = extract(posterior_variance, t, x.shape)
+            noise = torch.randn_like(x)
+            # Algorithm 2 line 4:
+            return model_mean + torch.sqrt(posterior_variance_t) * noise
 
 # Algorithm 2 (including returning all images)
 @torch.no_grad()
-def p_sample_loop(model, cond, timesteps, betas, shape, start_noise):
+def p_sample_loop(model, cond, timesteps, betas, shape, start_noise, mode):
     device = next(model.parameters()).device
 
     b = shape[0]
@@ -162,11 +181,10 @@ def p_sample_loop(model, cond, timesteps, betas, shape, start_noise):
         img = start_noise
 
     for i in reversed(range(0, timesteps)):
-        img = p_sample(model, img, torch.full((b,), i, device=device, dtype=torch.long), cond, i, betas)
+        img = p_sample(model, img, torch.full((b,), i, device=device, dtype=torch.long), cond, i, betas, mode)
         imgs.append(img)
-        #imgs.append(img.cpu().numpy())
     return imgs
 
 @torch.no_grad()
-def sample(model, cond, latent_dim, timesteps, betas, batch_size, start_noise = None):
-    return p_sample_loop(model, cond, timesteps, betas, shape=(batch_size, latent_dim), start_noise = start_noise)
+def sample(model, cond, latent_dim, timesteps, betas, batch_size, start_noise = None, mode = 'noise'):
+    return p_sample_loop(model, cond, timesteps, betas, shape=(batch_size, latent_dim), start_noise = start_noise, mode=mode)
