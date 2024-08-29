@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.spatial.distance import cosine
 from scipy.stats import pearsonr
+from collections import Counter
+import numpy as np
 
 def find_checkpoint(parent_folder, end):
     '''Give this function the last 4 digits of the experiment name and the folder in which to look for it.
@@ -81,7 +83,7 @@ def get_num_nodes(triplets1, triplets2, pred_name='Diffusion'):
     plt.show()
     
 def compare_statistics(list1, list2, names_list, list1_name:str='train', list2_name:str='validation',  stat:str = 'verb', other=False):
-    ''' function used to compare train and validation statistics or train and samples from diffusion models''' 
+    ''' function used to compare train and validation statistics or train and samples from diffusion models/VAE''' 
     import matplotlib.pyplot as plt
     from collections import Counter
     import pandas as pd
@@ -134,73 +136,77 @@ def compare_statistics(list1, list2, names_list, list1_name:str='train', list2_n
 
     plt.savefig(f'perc_{stat}_{other}.jpg', format='jpg', dpi=500)
     plt.show()
+    return c1, c2
 
-    # Compute histogram distances and save them
-    euclidean_dist = euclidean_distance(hist1, hist2)
-    manhattan_dist = manhattan_distance(hist1, hist2)
-    cosine_dist = cosine_distance(hist1, hist2)
-    correlation_dist = correlation_distance(hist1, hist2)
-    distances = [euclidean_dist, manhattan_dist, cosine_dist, correlation_dist]
-
-    print(f"Euclidean Distance between {list1_name} and {list2_name} for {stat}:", euclidean_dist)
-    print(f"Manhattan Distance {list1_name} and {list2_name} for {stat}:", manhattan_dist)
-    print(f"Cosine Distance {list1_name} and {list2_name} for {stat}:", cosine_dist)
-    print(f"Correlation Distance {list1_name} and {list2_name} for {stat}:", correlation_dist)
-    return hist1, hist2, distances
-
-def euclidean_distance(hist1, hist2):
-    # Get the heights of the bars
-    heights1 = np.array([rect.get_height() for rect in hist1])
-    heights2 = np.array([rect.get_height() for rect in hist2])
+def top10_distances(c1, c2):
+    '''Function to compute distances for top 10 elements in each counter'''
+    # Extract top 10 elements for each counter
+    top10_1 = dict(c1.most_common(10))
+    top10_2 = dict(c2.most_common(10))
     
-    # Compute the Euclidean distance
-    if len(heights1) != len(heights2):
-        m = min(len(heights1),len(heights2))
-        print("Warning: histograms have different lenghts. Truncating the longer one. Potential loss of information.")
-        distance = np.linalg.norm(heights1[:m] - heights2[:m])
-    else:
-        distance = np.linalg.norm(heights1 - heights2)
-    return distance
-
-def manhattan_distance(hist1, hist2):
-    # Get the heights of the bars
-    heights1 = np.array([rect.get_height() for rect in hist1])
-    heights2 = np.array([rect.get_height() for rect in hist2])
+    # Ensure the keys match between the two dictionaries
+    keys = set(top10_1.keys()).union(set(top10_2.keys()))
+    for key in keys:
+        top10_1.setdefault(key, 0)
+        top10_2.setdefault(key, 0)
     
-    # Compute the Manhattan distance
-    if len(heights1) != len(heights2):
-        m = min(len(heights1),len(heights2))
-        print("Warning: histograms have different lenghts. Truncating the longer one. Potential loss of information.")
-        distance = np.sum(np.abs(heights1[:m] - heights2[:m]))
-    else:
-        distance = np.sum(np.abs(heights1 - heights2))
-    return distance
+    # turn values into percentages
+    s1 = sum(list(top10_1.values()))
+    s2 = sum(list(top10_2.values()))
 
-def cosine_distance(hist1, hist2):
-    # Get the heights of the bars
-    heights1 = np.array([rect.get_height() for rect in hist1])
-    heights2 = np.array([rect.get_height() for rect in hist2])
-    
-    # Compute the cosine distance
-    if len(heights1) != len(heights2):
-        m = min(len(heights1),len(heights2))
-        print("Warning: histograms have different lenghts. Truncating the longer one. Potential loss of information.")
-        distance = cosine(heights1[:m], heights2[:m])
-    else:
-        distance = cosine(heights1, heights2)
-    return distance
+    for k,v in top10_1.items():
+        top10_1[k] = v/s1
 
-def correlation_distance(hist1, hist2):
-    # Get the heights of the bars
-    heights1 = np.array([rect.get_height() for rect in hist1])
-    heights2 = np.array([rect.get_height() for rect in hist2])
-    
-    # Compute the Pearson correlation and then the distance
-    if len(heights1) != len(heights2):
-        m = min(len(heights1),len(heights2))
-        print("Warning: histograms have different lenghts. Truncating the longer one. Potential loss of information.")
-        correlation, _ = pearsonr(heights1[:m], heights2[:m])
-    else:
-        correlation, _ = pearsonr(heights1, heights2)
-    distance = 1 - correlation
-    return distance
+    for k,v in top10_2.items():
+        top10_2[k] = v/s2
+
+    # Calculate Euclidean and Manhattan distances for top 10
+    ed = euclidean_distance(Counter(top10_1), Counter(top10_2))
+    md = manhattan_distance(Counter(top10_1), Counter(top10_2))
+    print(f"top10 euclidean distance: {ed}")
+    print(f"top10 manhattan distance: {ed}")
+    return ed, md
+
+def all_distances(c1, c2):
+    d1 = dict(c1)
+    d2 = dict(c2)
+    keys = set(d1.keys()).union(set(d2.keys()))
+    for key in keys:
+        d1.setdefault(key, 0)
+        d2.setdefault(key, 0)
+
+    # turn values into percentages
+    s1 = sum(list(d1.values()))
+    s2 = sum(list(d2.values()))
+
+    for k,v in d1.items():
+        d1[k] = v/s1
+
+    for k,v in d2.items():
+        d2[k] = v/s2
+
+    ed_all = euclidean_distance(Counter(d1), Counter(d2))
+    md_all = manhattan_distance(Counter(d1), Counter(d2))
+    print(f"complete euclidean distance: {ed_all}")
+    print(f"complete manhattan distance: {ed_all}")
+    return ed_all, md_all
+
+def euclidean_distance(c1, c2):
+    '''Function to compute Euclidean distance between two counters'''
+    # Extract keys and values for both counters
+    keys = list(c1.keys())
+    v1 = np.array([c1[k] for k in keys])
+    v2 = np.array([c2[k] for k in keys])
+    # Calculate Euclidean distance
+    euclidean_distance = np.sqrt(np.sum((v1 - v2) ** 2))
+    return euclidean_distance
+
+def manhattan_distance(c1, c2):
+    '''Function to compute Manhattan distance between two counters'''
+    # Extract keys and values for both counters
+    keys = list(c1.keys())
+    v1 = np.array([c1[k] for k in keys])
+    v2 = np.array([c2[k] for k in keys])
+    # Calculate Manhattan distance
+    manhattan_distance = np.sum(np.abs(v1 - v2))
+    return manhattan_distance
