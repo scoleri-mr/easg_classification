@@ -82,7 +82,7 @@ def get_num_nodes(triplets1, triplets2, pred_name='Diffusion'):
     plt.ylabel('Frequency')
     plt.show()
     
-def compare_statistics(list1, list2, names_list, list1_name:str='train', list2_name:str='validation',  stat:str = 'verb', other=False):
+def compare_statistics(list1, list2, names_list, list1_name:str='train', list2_name:str='validation',  stat:str = 'verb', other=False, save=False):
     ''' function used to compare train and validation statistics or train and samples from diffusion models/VAE''' 
     import matplotlib.pyplot as plt
     from collections import Counter
@@ -134,7 +134,7 @@ def compare_statistics(list1, list2, names_list, list1_name:str='train', list2_n
     # Adjust layout and show plot
     plt.tight_layout()
 
-    plt.savefig(f'perc_{stat}_{other}.jpg', format='jpg', dpi=500)
+    if save: plt.savefig(f'perc_{stat}_{other}.jpg', format='jpg', dpi=500)
     plt.show()
     return c1, c2
 
@@ -151,8 +151,8 @@ def top10_distances(c1, c2):
         top10_2.setdefault(key, 0)
     
     # turn values into percentages
-    s1 = sum(list(top10_1.values()))
-    s2 = sum(list(top10_2.values()))
+    s1 = sum(list(c1.values()))
+    s2 = sum(list(c2.values()))
 
     for k,v in top10_1.items():
         top10_1[k] = v/s1
@@ -162,10 +162,10 @@ def top10_distances(c1, c2):
 
     # Calculate Euclidean and Manhattan distances for top 10
     ed = euclidean_distance(Counter(top10_1), Counter(top10_2))
-    md = manhattan_distance(Counter(top10_1), Counter(top10_2))
+    # md = manhattan_distance(Counter(top10_1), Counter(top10_2))
     print(f"top10 euclidean distance: {ed}")
-    print(f"top10 manhattan distance: {ed}")
-    return ed, md
+    # print(f"top10 manhattan distance: {ed}")
+    return ed
 
 def all_distances(c1, c2):
     d1 = dict(c1)
@@ -186,10 +186,10 @@ def all_distances(c1, c2):
         d2[k] = v/s2
 
     ed_all = euclidean_distance(Counter(d1), Counter(d2))
-    md_all = manhattan_distance(Counter(d1), Counter(d2))
+    # md_all = manhattan_distance(Counter(d1), Counter(d2))
     print(f"complete euclidean distance: {ed_all}")
-    print(f"complete manhattan distance: {ed_all}")
-    return ed_all, md_all
+    # print(f"complete manhattan distance: {ed_all}")
+    return ed_all
 
 def euclidean_distance(c1, c2):
     '''Function to compute Euclidean distance between two counters'''
