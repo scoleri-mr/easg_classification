@@ -4,7 +4,7 @@ import torch
 import copy
 import pickle
 
-class EASGvideo(Dataset):
+class EASGvideo_original(Dataset):
     def __init__(self, path_annts, path_data, split, verbs, objs, rels):
         self.path_annts = path_annts
         self.path_data = path_data
@@ -136,3 +136,37 @@ class EASGvideo(Dataset):
 
         video_data.sort(key=lambda data: data.frame_number)
         return video_data  # Return a list of Data objects for this video
+
+class EASGvideo(Dataset):
+    def __init__(self, path_annts, path_data, split, verbs, objs, rels, treshold=20, window=20, shift=20, original=False):
+        self.window = window
+        self.treshold = treshold
+        self.shift = shift
+        self.original = original
+
+        self.dataset_original = EASGvideo_original(path_annts, path_data, split, verbs, objs, rels)
+        short_videos = self.filter_short_videos(self.dataset_original)
+        self.final_videos = self.get_subvideos(short_videos)
+
+    def filter_short_videos(self, train_video_original):
+        long_videos = []
+        for video in train_video_original:
+            if len(video)>=self.treshold:
+                long_videos.append(video)
+        return long_videos
+    
+    def get_subvideos(self, train_video_original):
+        final_videos = []
+        for video in train_video_original:
+            k = (int((len(video)-self.window)/self.shift))+1   # number of subvideos that can be extracted from the current video
+            for i in range(k):
+                final_videos.append(video[i*self.shift : i*self.shift+self.window])
+        return final_videos
+    
+    def __len__(self):
+        return len(self.final_videos)
+
+    def __getitem__(self, idx):
+        if self.original:
+            return self.dataset_original[idx]
+        else: return self.final_videos[idx]
