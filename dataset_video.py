@@ -1,4 +1,4 @@
-from torch_geometric.data import Data, Dataset
+from torch_geometric.data import Data, Dataset, Batch
 from pathlib import Path
 import torch
 import copy
