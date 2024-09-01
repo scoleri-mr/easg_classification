@@ -8,9 +8,49 @@ def extract(a, t, x_shape):
     out = a.gather(-1, t.cpu())
     return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device)
 
+def condition_projection(x, num_fixed_frames=5):
+    """
+    Ensures that the first `num_noise_free` frames of the video are noise-free.
+    
+    :param x: Input tensor of shape (batch_size, sequence_length+1, feature_dim)
+    :param num_noise_free: Number of initial elements to keep noise-free
+    :return: Modified tensor with the first `num_noise_free` elements unchanged
+    """
+    x[:, 1:num_fixed_frames] = x[:, 1:num_fixed_frames].clone()
+    return x
+
+def positional_encoding(d_model, length):
+    """
+    :param d_model: dimension of the codes
+    :param length: length of positions
+    :return: length*d_model position matrix
+    """
+    if d_model % 2 != 0:
+        raise ValueError("Cannot use sin/cos positional encoding with "
+                         "odd dim (got dim={:d})".format(d_model))
+    pe = torch.zeros(length, d_model)
+    position = torch.arange(0, length).unsqueeze(1)
+    div_term = torch.exp((torch.arange(0, d_model, 2, dtype=torch.float) *
+                         -(math.log(10000.0) / d_model)))
+    pe[:, 0::2] = torch.sin(position.float() * div_term)
+    pe[:, 1::2] = torch.cos(position.float() * div_term)
+    return pe.view(1,20,512)
+
+class positional_mlp(nn.Module):
+    def __init__(self, d_model):
+        super(positional_mlp, self).__init__()
+        self.d_model = d_model
+        self.pos_mlp = nn.Sequential(
+                nn.Linear(d_model, d_model),
+                nn.GELU(),
+                nn.Linear(d_model, d_model),
+            )
+        
+    def forward(self, positional_encoding):
+        return self.pos_mlp(positional_encoding)
 
 # forward diffusion (using the nice property)
-def q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None):
+def q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, num_fixed_frames=5):
     if noise is None:
         noise = torch.randn_like(x_start)
 
@@ -19,15 +59,16 @@ def q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noi
         sqrt_one_minus_alphas_cumprod, t, x_start.shape
     )
 
-    return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
-
+    x_noisy = sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
+    x_noisy = condition_projection(x_noisy, num_fixed_frames)  # Apply condition projection
+    return 
 
 # Loss function for denoising
-def p_losses(denoise_model, x_start, t, cond, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, loss_type="l1", mode='noise'):
+def p_losses(denoise_model, x_start, t, cond, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, loss_type="l1", mode='noise', num_fixed_frames=5):
     if noise is None:
         noise = torch.randn_like(x_start)
 
-    x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod)
+    x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, num_fixed_frames)
     out_pred = denoise_model(x_noisy, t, cond)  # if reconstruct=True out_pred will cointain the reconstructed x, otherwise the predicted noise
 
     if mode=='reconstruct':
@@ -70,22 +111,13 @@ class SinusoidalPositionEmbeddings(nn.Module):
         embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
         return embeddings
 
-
 # Denoise model
 class DenoiseNN(nn.Module):
-    def __init__(self, input_dim, hidden_dim, n_layers, n_cond, d_cond, norm_type):
+    def __init__(self, input_dim, d_model, hidden_dim, n_layers, norm_type):
         super(DenoiseNN, self).__init__()
-        self.n_layers = n_layers
         self.norm_type = norm_type
-        if n_cond>0 and d_cond>0:
-            self.n_cond = n_cond
-            self.d_cond = d_cond
-            self.cond_mlp = nn.Sequential(
-                nn.Linear(n_cond, d_cond),
-                nn.ReLU(),
-                nn.Linear(d_cond, d_cond),
-            )
 
+        # time encoding
         self.time_mlp = nn.Sequential(
             SinusoidalPositionEmbeddings(hidden_dim),
             nn.Linear(hidden_dim, hidden_dim),
@@ -93,9 +125,15 @@ class DenoiseNN(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
         )
 
-        mlp_layers = [nn.Linear(input_dim+d_cond, hidden_dim)] + [nn.Linear(hidden_dim+d_cond, hidden_dim) for i in range(n_layers-2)]
-        mlp_layers.append(nn.Linear(hidden_dim, input_dim))
-        self.mlp = nn.ModuleList(mlp_layers)
+        # positional encoding
+        self.pos_mlp = nn.Sequential(
+                nn.Linear(d_model, d_model),
+                nn.GELU(),
+                nn.Linear(d_model, d_model),
+        )
+
+        # TODO: implement visual transformer
+        self.ViT = ...
 
         if self.norm_type == 'batch':
             n_layers = [nn.BatchNorm1d(hidden_dim) for i in range(n_layers-1)]
@@ -108,28 +146,17 @@ class DenoiseNN(nn.Module):
 
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
+ 
+    def forward(self, x, t, pe):
+        t = self.time_mlp(t).unsqueeze(1)
+        pe = self.pos_enc(pe)
 
-    
-    def forward(self, x, t, cond):
-        if cond is not None:
-            cond = torch.reshape(cond, (-1, self.n_cond))
-            cond = torch.nan_to_num(cond, nan=-100.0)
-            cond = self.cond_mlp(cond)
-        t = self.time_mlp(t)
-        for i in range(self.n_layers-1):
-            if cond is not None:
-                x = torch.cat((x, cond), dim=1)
-            x = self.relu(self.mlp[i](x))+t
-            if self.norm_type == 'layer':
-                x = self.ln[i](x)
-            elif self.norm_type == 'batch':
-                x = self.bn[i](x)
-        x = self.mlp[self.n_layers-1](x)
-        return x
+        x_final = torch.cat((t, (x+pe)), dim=1)
+        x_final = self.ViT(x_final)
+        return x_final
 
 @torch.no_grad()
-def p_sample(model, x, t, cond, t_index, betas, mode):
-
+def p_sample(model, x, t, cond, t_index, betas, mode, num_fixed_frames=5):
     if mode=='reconstruct':
         # Direct reconstruction
         return model(x,t,cond)
@@ -161,16 +188,19 @@ def p_sample(model, x, t, cond, t_index, betas, mode):
         )
 
         if t_index == 0:
-            return model_mean
+            x_final = model_mean
         else:
             posterior_variance_t = extract(posterior_variance, t, x.shape)
             noise = torch.randn_like(x)
             # Algorithm 2 line 4:
-            return model_mean + torch.sqrt(posterior_variance_t) * noise
+            x_final = model_mean + torch.sqrt(posterior_variance_t) * noise
+        x_final = condition_projection(x_final, num_fixed_frames)
+        return x_final
+
 
 # Algorithm 2 (including returning all images)
 @torch.no_grad()
-def p_sample_loop(model, cond, timesteps, betas, shape, start_noise, mode):
+def p_sample_loop(model, cond, timesteps, betas, shape, start_noise, mode, num_fixed_frames=5):
     device = next(model.parameters()).device
 
     b = shape[0]
@@ -181,7 +211,7 @@ def p_sample_loop(model, cond, timesteps, betas, shape, start_noise, mode):
         img = start_noise
 
     for i in reversed(range(0, timesteps)):
-        img = p_sample(model, img, torch.full((b,), i, device=device, dtype=torch.long), cond, i, betas, mode)
+        img = p_sample(model, img, torch.full((b,), i, device=device, dtype=torch.long), cond, i, betas, mode, num_fixed_frames)
         imgs.append(img)
     return imgs
 
