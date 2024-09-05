@@ -59,6 +59,7 @@ def p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_
 
     x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, num_fixed_frames)
     print(f"xnoisy plosses: {x_noisy.size()}")
+    print("CALLING FORWARD FROM p_losses")
     out_pred = denoise_model(x_noisy, t, pe)  # if reconstruct=True out_pred will cointain the reconstructed x, otherwise the predicted noise
 
     if mode=='reconstruct':
@@ -171,6 +172,8 @@ class DenoiseNN(nn.Module):
 
 @torch.no_grad()
 def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
+    print(f"xsize input PSAMPLE: {x.size()}")
+    print(f"tsize input PSAMPLE: {t.size()}")
     if mode=='reconstruct':
         # Direct reconstruction
         return model(x,t)
@@ -190,6 +193,7 @@ def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
         posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
         betas_t = extract(betas, t, x.shape)
+        print
         sqrt_one_minus_alphas_cumprod_t = extract(
             sqrt_one_minus_alphas_cumprod, t, x.shape
         )
@@ -197,6 +201,7 @@ def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
 
         # Equation 11 in the paper
         # Use our model (noise predictor) to predict the mean
+        print("CALLING FORWARD FROM p_sample")
         model_mean = sqrt_recip_alphas_t * (
             x - betas_t * model(x, t, pe) / sqrt_one_minus_alphas_cumprod_t
         )
@@ -218,6 +223,7 @@ def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
 def p_sample_loop(model, timesteps, pe, betas, shape, start_noise, mode, num_fixed_frames=5):
     device = next(model.parameters()).device
 
+    print(f"shape: {shape}")
     b = shape[0]
     imgs = [] 
     if start_noise == None:
@@ -231,8 +237,8 @@ def p_sample_loop(model, timesteps, pe, betas, shape, start_noise, mode, num_fix
     return imgs
 
 @torch.no_grad()
-def sample(model, latent_dim, timesteps, pe, betas, batch_size, start_noise = None, mode = 'noise'):
-    return p_sample_loop(model, timesteps, pe, betas, shape=(batch_size, latent_dim), start_noise = start_noise, mode=mode)
+def sample(model, latent_dim, sequence_length, timesteps, pe, betas, batch_size, start_noise = None, mode = 'noise'):
+    return p_sample_loop(model, timesteps, pe, betas, shape=(batch_size, sequence_length, latent_dim), start_noise = start_noise, mode=mode)
 
 import torch
 
@@ -275,11 +281,11 @@ def main():
     # x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise, num_fixed_frames)
 
     # Run the denoising model
-    loss = p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=noise, mode=mode, num_fixed_frames=num_fixed_frames)
-    print(f"Loss: {loss.item()}")
+    # loss = p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=noise, mode=mode, num_fixed_frames=num_fixed_frames)
+    #print(f"Loss: {loss.item()}")
 
     # Test sampling process
-    samples = sample(denoise_model, feature_dim, timesteps, pe, betas, batch_size, start_noise=None, mode=mode)
+    samples = sample(denoise_model, feature_dim, sequence_length, timesteps, pe, betas, batch_size, start_noise=None, mode=mode)
     print(f"Sampled output shape: {samples[-1].shape}")
 
 if __name__ == "__main__":
