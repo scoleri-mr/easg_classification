@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from simple_vit import Transformer
 
 def extract(a, t, x_shape):
     batch_size = t.shape[0]
@@ -17,7 +18,7 @@ def condition_projection(x, num_fixed_frames=5):
     :return: Modified tensor with the first `num_noise_free` elements unchanged
     """
     x[:, 1:num_fixed_frames] = x[:, 1:num_fixed_frames].clone()
-    return x
+    return x    # out ->    [batch_size, frames, code_dim]
 
 def positional_encoding(d_model, length):
     """
@@ -35,19 +36,6 @@ def positional_encoding(d_model, length):
     pe[:, 0::2] = torch.sin(position.float() * div_term)
     pe[:, 1::2] = torch.cos(position.float() * div_term)
     return pe.view(1,20,512)
-
-class positional_mlp(nn.Module):
-    def __init__(self, d_model):
-        super(positional_mlp, self).__init__()
-        self.d_model = d_model
-        self.pos_mlp = nn.Sequential(
-                nn.Linear(d_model, d_model),
-                nn.GELU(),
-                nn.Linear(d_model, d_model),
-            )
-        
-    def forward(self, positional_encoding):
-        return self.pos_mlp(positional_encoding)
 
 # forward diffusion (using the nice property)
 def q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, num_fixed_frames=5):
@@ -111,9 +99,24 @@ class SinusoidalPositionEmbeddings(nn.Module):
         embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
         return embeddings
 
+# Transformer
+class SimpleViT(nn.Module):
+    def __init__(self, *, sequence_length, dim, depth, heads, mlp_dim, dim_head=64):
+        super().__init__()
+        self.sequence_length = sequence_length
+        self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim)
+        self.to_latent = nn.Identity()
+        self.linear_head = nn.Linear(dim, dim)
+
+    def forward(self, x):
+        # x is already a sequence with shape (batch_size, sequence_length, dim)
+        x = self.transformer(x) 
+        x = self.to_latent(x)
+        return self.linear_head(x)  # Project back to the original dimension
+    
 # Denoise model
 class DenoiseNN(nn.Module):
-    def __init__(self, input_dim, d_model, hidden_dim, n_layers, norm_type):
+    def __init__(self, window_size, depth, heads, d_model, hidden_dim, n_layers, norm_type):
         super(DenoiseNN, self).__init__()
         self.norm_type = norm_type
 
@@ -132,8 +135,7 @@ class DenoiseNN(nn.Module):
                 nn.Linear(d_model, d_model),
         )
 
-        # TODO: implement visual transformer
-        self.ViT = ...
+        self.ViT = SimpleViT(sequence_length=window_size, dim=d_model, depth=depth, heads=heads, mlp_dim=hidden_dim)
 
         if self.norm_type == 'batch':
             n_layers = [nn.BatchNorm1d(hidden_dim) for i in range(n_layers-1)]
@@ -148,11 +150,16 @@ class DenoiseNN(nn.Module):
         self.tanh = nn.Tanh()
  
     def forward(self, x, t, pe):
+        print(x.size())
         t = self.time_mlp(t).unsqueeze(1)
+        print(t.size())
         pe = self.pos_enc(pe)
+        print(pe.size())
 
         x_final = torch.cat((t, (x+pe)), dim=1)
+        print(x_final.size())
         x_final = self.ViT(x_final)
+        print(x_final.size())
         return x_final
 
 @torch.no_grad()
