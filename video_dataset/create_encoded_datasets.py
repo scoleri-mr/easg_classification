@@ -1,10 +1,12 @@
 """
-    script to create the video_dataset with encoded graphs
+    script to create and save the datasets with encoded graphs from the video frames
     Requires trained vae path
+    Uses dataset_video.py to get the pytorch geometric frames from the videos
+    and saves the encoded frames in a dictionary in which the keys are the videos ids
 """
 import argparse
 from easg_classification.utils import load_model
-from easg_classification.video_dataset.dataset_video import EASGvideo_original
+from easg_classification.video_dataset.dataset_video_pyg import EASGvideo_original
 from pathlib import Path
 from torch_geometric.loader import DataLoader
 import torch

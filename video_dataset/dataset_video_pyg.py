@@ -5,6 +5,13 @@ import torch
 import copy
 import pickle
 
+"""
+    This files allows to create a dataset where the getitem returns a "video":
+    starting from the annotated data, groups all the annotated frames by video,
+    sorts the frames based on their order, returns a list of pytorch geometric 
+    data objects in which each object is an annotated frame.
+"""
+
 class EASGvideo_original(PygDataset):
     def __init__(self, path_annts, path_data, split, verbs, objs, rels):
         self.path_annts = path_annts
