@@ -6,7 +6,7 @@
 """
 import argparse
 from easg_classification.utils import load_model
-from easg_classification.video_dataset.dataset_video_pyg import EASGvideo_original
+from easg_classification.dataset_video.dataset_video_pyg import EASGvideo_original
 from pathlib import Path
 from torch_geometric.loader import DataLoader
 import torch
@@ -22,6 +22,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # create the video dataset
     with open(args.ann_path + 'verbs.txt') as f:
@@ -63,7 +64,7 @@ def main():
     encoded_videos_train = {}
     for video in train_loader_v:
         for frame in video:
-            frame.to('cuda')
+            frame.to(device)
             video_id = frame.video_id[0]    # only one video if batch_size=1  
             if video_id not in encoded_videos_train:
                 encoded_videos_train[video_id] = []
@@ -76,7 +77,7 @@ def main():
     encoded_videos_val = {}
     for video in val_loader_v:
         for frame in video:
-            frame.to('cuda')
+            frame.to(device)
             video_id = frame.video_id[0]    # only one video if batch_size=1  
             if video_id not in encoded_videos_val:
                 encoded_videos_val[video_id] = []
@@ -87,9 +88,9 @@ def main():
         encoded_videos_val[video_id] = torch.stack(encoded_videos_val[video_id])
 
     # now save the new dictionaries as torch datasets
-    torch.save(encoded_videos_train, f'easg_classification/video_dataset/encoded_videos_train_{args.latent_dim}.pth')
+    torch.save(encoded_videos_train, f'easg_classification/dataset_video/encoded_videos_train_{args.latent_dim}.pth')
     print("Training video dataset saved!")
-    torch.save(encoded_videos_train, f'easg_classification/video_dataset/encoded_videos_validation_{args.latent_dim}.pth')
+    torch.save(encoded_videos_val, f'easg_classification/dataset_video/encoded_videos_validation_{args.latent_dim}.pth')
     print("Validation video dataset saved!")
 
 if __name__ == "__main__":

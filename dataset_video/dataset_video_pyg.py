@@ -2,7 +2,6 @@ from torch_geometric.data import Data, Dataset as PygDataset
 from pathlib import Path
 from torch.utils.data import Dataset
 import torch
-import copy
 import pickle
 
 """
@@ -145,7 +144,7 @@ class EASGvideo_original(PygDataset):
         video_data.sort(key=lambda data: data.frame_number)
         return video_data  # Return a list of Data objects for this video
 
-class EASGvideo(Dataset):
+class EASGvideo_pyg(Dataset):
     def __init__(self, path_annts, path_data, split, verbs, objs, rels, treshold=20, window=20, shift=20, original=False):
         self.window = window
         self.treshold = treshold
