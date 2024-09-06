@@ -1,4 +1,6 @@
 import torch
+from easg_classification.autoencoder import EASGvae
+from easg_classification.autoencoder import EASGAutoEncoder
 
 def set_wandb_config(num_epochs, hidden_projection_dim, projection_dim,
                      hidden_dim, output_dim, batch_size, scheduler_type,
@@ -40,12 +42,10 @@ def load_model(model_name, model_path, separate, output_dim=256, device='cuda'):
     use_focal_loss=True
 
     if model_name=='vae':
-        from autoencoder import EASGvae
         model = EASGvae(obj_dim, verb_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, 'original', dropout_prob=dropout_prob, graph_type=graph_type, use_focal_loss=use_focal_loss, separate=separate)
         model.load_state_dict(torch.load(model_path)['model_state_dict'], strict=False)
         model = model.to(device)
     elif model_name=='ae':
-        from autoencoder import EASGAutoEncoder
         model = EASGAutoEncoder(obj_dim, verb_dim, num_rels, num_verbs, num_objs, hidden_projection_dim, projection_dim, hidden_dim, output_dim, dropout_prob=dropout_prob, graph_type=graph_type, use_focal_loss=use_focal_loss, separate=separate)
         model.load_state_dict(torch.load(model_path)['model_state_dict'])
         model = model.to(device)

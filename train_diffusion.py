@@ -32,7 +32,7 @@ np.random.seed(13)
 
 # Argument parser
 def parse_args():
-    parser = argparse.ArgumentParser(description='NeuralGraphGenerator')
+    parser = argparse.ArgumentParser(description='TrainDiffusion')
     parser.add_argument('--ann_path', type=str, default='./annts_in_new_format/', help='path to annotations')
     parser.add_argument('--data_path', type=str, default='./data/', help='path to ROI and clip features')
     parser.add_argument('--exp_name', type=str, default=None, help='experiment name')

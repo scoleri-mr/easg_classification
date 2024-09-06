@@ -1,10 +1,11 @@
-from torch_geometric.data import Data, Dataset
+from torch_geometric.data import Data, Dataset as PygDataset
 from pathlib import Path
+from torch.utils.data import Dataset
 import torch
 import copy
 import pickle
 
-class EASGvideo_original(Dataset):
+class EASGvideo_original(PygDataset):
     def __init__(self, path_annts, path_data, split, verbs, objs, rels):
         self.path_annts = path_annts
         self.path_data = path_data
