@@ -17,7 +17,7 @@ def condition_projection(x_noisy, x_start, num_fixed_frames=5):
     :param num_noise_free: Number of initial elements to keep noise-free
     :return: Modified tensor with the first `num_noise_free` elements unchanged
     """
-    x_noisy[:, 1:num_fixed_frames] = x_start[:, 1:num_fixed_frames].clone()
+    x_noisy[:, :num_fixed_frames] = x_start[:, :num_fixed_frames].clone()
     return x_noisy    # out ->    [batch_size, frames, code_dim]
 
 def positional_encoding(d_model, length, batch_size):
@@ -55,12 +55,10 @@ def q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noi
 # Loss function for denoising
 def p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, loss_type="l1", mode='noise', num_fixed_frames=5):
     if noise is None:
-        noise = torch.randn(x_start.size(0), x_start.size(1)+1, x_start.size(2))
+        noise = torch.randn(x_start.size(0), x_start.size(1), x_start.size(2))
 
     x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, num_fixed_frames)
-    print(f"xnoisy plosses: {x_noisy.size()}")
-    print("CALLING FORWARD FROM p_losses")
-    out_pred = denoise_model(x_noisy, t, pe)  # if reconstruct=True out_pred will cointain the reconstructed x, otherwise the predicted noise
+    out_pred = denoise_model(x_noisy, t, pe)[:, 1:, :]  # if reconstruct=True out_pred will cointain the reconstructed x, otherwise the predicted noise
 
     if mode=='reconstruct':
         # Reconstuction loss: predict the denoised sample
@@ -75,8 +73,6 @@ def p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_
     elif mode=='noise':
         # Noise prediction loss: predict the noise
         if loss_type == 'l1':
-            print(f"noise: {noise.size()}")
-            print(f"out_pred: {out_pred.size()}")
             loss = F.l1_loss(noise, out_pred)
         elif loss_type == 'l2':
             loss = F.mse_loss(noise, out_pred)
@@ -155,28 +151,18 @@ class DenoiseNN(nn.Module):
         self.tanh = nn.Tanh()
  
     def forward(self, x, t, pe):
-        print("INIZIO FORWARD")
-        print(f"x: {x.size()}")
         t = self.time_mlp(t).unsqueeze(1)
-        print(f"t: {t.size()}")
-        print(f"pe: {pe.size()}")
         pe = self.pos_mlp(pe)
-        print(f"pe dopo: {pe.size()}")
 
         x_final = torch.cat((t, (x+pe)), dim=1)
-        print(f"x_final: {x_final.size()}")
         x_final = self.ViT(x_final)
-        print(f"x_final after vit: {x_final.size()}")
-        print("END FORWARD")
         return x_final
 
 @torch.no_grad()
 def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
-    print(f"xsize input PSAMPLE: {x.size()}")
-    print(f"tsize input PSAMPLE: {t.size()}")
     if mode=='reconstruct':
         # Direct reconstruction
-        return model(x,t)
+        return model(x,t)[:,1:,:]
     
     else: 
         # define alphas
@@ -193,7 +179,6 @@ def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
         posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
         betas_t = extract(betas, t, x.shape)
-        print
         sqrt_one_minus_alphas_cumprod_t = extract(
             sqrt_one_minus_alphas_cumprod, t, x.shape
         )
@@ -201,9 +186,8 @@ def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
 
         # Equation 11 in the paper
         # Use our model (noise predictor) to predict the mean
-        print("CALLING FORWARD FROM p_sample")
         model_mean = sqrt_recip_alphas_t * (
-            x - betas_t * model(x, t, pe) / sqrt_one_minus_alphas_cumprod_t
+            x - betas_t * model(x, t, pe)[:,1:,:] / sqrt_one_minus_alphas_cumprod_t
         )
 
         if t_index == 0:
@@ -214,7 +198,6 @@ def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
             # Algorithm 2 line 4:
             x_final = model_mean + torch.sqrt(posterior_variance_t) * noise
         x_final = condition_projection(x_final, x, num_fixed_frames)
-        print(f"xfinal: {x_final}")
         return x_final
 
 
@@ -223,7 +206,6 @@ def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
 def p_sample_loop(model, timesteps, pe, betas, shape, start_noise, mode, num_fixed_frames=5):
     device = next(model.parameters()).device
 
-    print(f"shape: {shape}")
     b = shape[0]
     imgs = [] 
     if start_noise == None:
@@ -264,7 +246,6 @@ def main():
 
     # Generate synthetic data
     x_start = torch.randn((batch_size, sequence_length, feature_dim))
-    print(f"xstart: {x_start.size()}")
     t = torch.randint(0, timesteps, (batch_size,))
     
     # Create positional encoding
@@ -278,11 +259,11 @@ def main():
     
     # Test forward diffusion process
     noise = None
-    # x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise, num_fixed_frames)
+    x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise, num_fixed_frames)
 
     # Run the denoising model
-    # loss = p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=noise, mode=mode, num_fixed_frames=num_fixed_frames)
-    #print(f"Loss: {loss.item()}")
+    loss = p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=noise, mode=mode, num_fixed_frames=num_fixed_frames)
+    print(f"Loss: {loss.item()}")
 
     # Test sampling process
     samples = sample(denoise_model, feature_dim, sequence_length, timesteps, pe, betas, batch_size, start_noise=None, mode=mode)
