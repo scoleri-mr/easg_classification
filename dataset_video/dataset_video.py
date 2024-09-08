@@ -17,7 +17,10 @@ def filter_short_videos(dataset_original, treshold):
 
 def random_window_selection(video, window_size):
     num_frames = video.size(0)
-    random_start = random.randint(0, num_frames - window_size - 1)
+    if num_frames == window_size:
+        random_start = 0    #if I have exactly the number of frames as the window_size return the whole video, random.randint doesn't work
+    else: 
+        random_start = random.randint(0, num_frames - window_size - 1)
     return video[random_start:random_start+window_size]
 
 def get_subvideos(self, train_video_original):

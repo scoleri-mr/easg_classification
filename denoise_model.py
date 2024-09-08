@@ -2,7 +2,9 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 from simple_vit import Transformer
+from dataset_video.dataset_video import EASGvideo
 
 def extract(a, t, x_shape):
     batch_size = t.shape[0]
@@ -20,7 +22,7 @@ def condition_projection(x_noisy, x_start, num_fixed_frames=5):
     x_noisy[:, :num_fixed_frames] = x_start[:, :num_fixed_frames].clone()
     return x_noisy    # out ->    [batch_size, frames, code_dim]
 
-def positional_encoding(d_model, length, batch_size):
+def positional_encoding(d_model, length, batch_size, device='cuda'):
     """
     :param d_model: dimension of the codes
     :param length: length of positions
@@ -36,7 +38,7 @@ def positional_encoding(d_model, length, batch_size):
     pe[:, 0::2] = torch.sin(position.float() * div_term)
     pe[:, 1::2] = torch.cos(position.float() * div_term)
     pe = pe.unsqueeze(0)
-    return pe.expand(batch_size, -1, -1)
+    return pe.expand(batch_size, -1, -1).to(device)
 
 # forward diffusion (using the nice property)
 def q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, num_fixed_frames=5):
@@ -53,12 +55,12 @@ def q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noi
     return x_noisy
 
 # Loss function for denoising
-def p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, loss_type="l1", mode='noise', num_fixed_frames=5):
+def p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, loss_type="l1", mode='noise', num_fixed_frames=5, device="cuda"):
     if noise is None:
-        noise = torch.randn(x_start.size(0), x_start.size(1), x_start.size(2))
+        noise = torch.randn(x_start.size(0), x_start.size(1), x_start.size(2)).to(device)
 
     x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, num_fixed_frames)
-    out_pred = denoise_model(x_noisy, t, pe)[:, 1:, :]  # if reconstruct=True out_pred will cointain the reconstructed x, otherwise the predicted noise
+    out_pred = denoise_model(x_noisy, t, pe)  # if reconstruct=True out_pred will cointain the reconstructed x, otherwise the predicted noise
 
     if mode=='reconstruct':
         # Reconstuction loss: predict the denoised sample
@@ -102,22 +104,21 @@ class SinusoidalPositionEmbeddings(nn.Module):
 
 # Transformer
 class SimpleViT(nn.Module):
-    def __init__(self, *, sequence_length, dim, depth, heads, mlp_dim, dim_head=64):
+    def __init__(self, *, dim, depth, heads, mlp_dim, time_dim, dim_head=64):
         super().__init__()
-        self.sequence_length = sequence_length+1 # +1 to account for time mlp
         self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim)
         self.to_latent = nn.Identity()
-        # self.linear_head = nn.Linear(dim, dim)
+        self.linear_head = nn.Linear(dim, dim-time_dim)
 
     def forward(self, x):
-        # x is a sequence with shape (batch_size, sequence_length, dim)
+        # x is a sequence with shape (batch_size, sequence_length, code_dim + time_dim)
         x = self.transformer(x) 
         x = self.to_latent(x)
-        return x  # Project back to the original dimension
-    
+        return self.linear_head(x)  # Project back to the original dimension (batch_size, sequence_length, code_dim)
+     
 # Denoise model
 class DenoiseNN(nn.Module):
-    def __init__(self, window_size, depth, heads, d_model, hidden_dim, n_layers, norm_type):
+    def __init__(self, window_size, depth, heads, d_model, hidden_dim, n_layers, norm_type, time_dim=64):
         super(DenoiseNN, self).__init__()
         self.norm_type = norm_type
 
@@ -126,7 +127,7 @@ class DenoiseNN(nn.Module):
             SinusoidalPositionEmbeddings(hidden_dim),
             nn.Linear(hidden_dim, hidden_dim),
             nn.GELU(),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim, time_dim),
         )
 
         # positional encoding
@@ -136,7 +137,7 @@ class DenoiseNN(nn.Module):
                 nn.Linear(d_model, d_model),
         )
 
-        self.ViT = SimpleViT(sequence_length=window_size, dim=d_model, depth=depth, heads=heads, mlp_dim=hidden_dim)
+        self.ViT = SimpleViT(dim=d_model+time_dim, time_dim=time_dim, depth=depth, heads=heads, mlp_dim=hidden_dim)
 
         if self.norm_type == 'batch':
             n_layers = [nn.BatchNorm1d(hidden_dim) for i in range(n_layers-1)]
@@ -152,9 +153,10 @@ class DenoiseNN(nn.Module):
  
     def forward(self, x, t, pe):
         t = self.time_mlp(t).unsqueeze(1)
+        t_extended = t.repeat(1,x.size(1),1)
         pe = self.pos_mlp(pe)
 
-        x_final = torch.cat((t, (x+pe)), dim=1)
+        x_final = torch.cat(((x+pe), t_extended), dim=2)
         x_final = self.ViT(x_final)
         return x_final
 
@@ -162,7 +164,7 @@ class DenoiseNN(nn.Module):
 def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
     if mode=='reconstruct':
         # Direct reconstruction
-        return model(x,t)[:,1:,:]
+        return model(x,t)
     
     else: 
         # define alphas
@@ -187,7 +189,7 @@ def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
         # Equation 11 in the paper
         # Use our model (noise predictor) to predict the mean
         model_mean = sqrt_recip_alphas_t * (
-            x - betas_t * model(x, t, pe)[:,1:,:] / sqrt_one_minus_alphas_cumprod_t
+            x - betas_t * model(x, t, pe) / sqrt_one_minus_alphas_cumprod_t
         )
 
         if t_index == 0:
@@ -226,7 +228,7 @@ import torch
 
 def main():
     # Define hyperparameters
-    batch_size = 2
+    batch_size = 4
     sequence_length = 20
     feature_dim = 256
     window_size = 20
@@ -243,10 +245,15 @@ def main():
     # Initialize model
     denoise_model = DenoiseNN(window_size=window_size, depth=depth, heads=heads, d_model=d_model,
                               hidden_dim=hidden_dim, n_layers=n_layers, norm_type='layer')
+    denoise_model.to('cuda')
 
-    # Generate synthetic data
+    # load the dataset and create random noise
     x_start = torch.randn((batch_size, sequence_length, feature_dim))
-    t = torch.randint(0, timesteps, (batch_size,))
+    train_path = "easg_classification/dataset_video/encoded_videos_train_256.pth"
+    train_dataset = EASGvideo(train_path)
+    trainloader = DataLoader(train_dataset, batch_size=batch_size)
+    t = torch.randint(0, timesteps, (batch_size,), device='cuda').long()
+    print(t.size())
     
     # Create positional encoding
     pe = positional_encoding(feature_dim, sequence_length, batch_size)
@@ -256,14 +263,15 @@ def main():
     alphas_cumprod = torch.cumprod(alphas, axis=0)
     sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
     sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
-    
-    # Test forward diffusion process
-    noise = None
-    x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise, num_fixed_frames)
 
     # Run the denoising model
-    loss = p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=noise, mode=mode, num_fixed_frames=num_fixed_frames)
-    print(f"Loss: {loss.item()}")
+    noise = None
+    for batch in trainloader:
+        batch.to('cuda')
+        print(f"batch.size: {batch.size()}")
+        loss = p_losses(denoise_model, batch, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=noise, mode=mode, num_fixed_frames=num_fixed_frames)
+        print(f"Loss: {loss.item()}")
+        break
 
     # Test sampling process
     samples = sample(denoise_model, feature_dim, sequence_length, timesteps, pe, betas, batch_size, start_noise=None, mode=mode)
