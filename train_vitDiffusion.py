@@ -13,20 +13,16 @@ import networkx as nx
 import numpy as np
 from datetime import datetime
 import torch
-import torch.nn as nn
-from torch_geometric.data import Data
 import wandb
 
 import torch.nn.functional as F
 from torch_geometric.loader import DataLoader
 
-from autoencoder import EASGvae, EASGAutoEncoder
-from denoise_model import DenoiseNN, p_losses, sample
-from utils_diffusion import create_dataset, CustomDataset, linear_beta_schedule, read_stats, eval_autoencoder, construct_nx_from_adj, store_stats, gen_stats, calculate_mean_std, evaluation_metrics, z_score_norm
-from dataset_ae import EASGDatasetAE
+from easg_classification.vitDenoise_model import DenoiseNN, p_losses, positional_encoding, sample
+from utils_diffusion import linear_beta_schedule
+from dataset_video.dataset_video import EASGvideo
 from utils import load_model, save_checkpoint
 
-from torch.utils.data import Subset
 from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 np.random.seed(13)
 
@@ -38,7 +34,7 @@ def parse_args():
     parser.add_argument('--exp_name', type=str, default=None, help='experiment name')
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--dropout', type=float, default=0.0)
-    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--latent_dim', type=int, default=256)
     parser.add_argument('--n_max_nodes', type=int, default=100)
     parser.add_argument('--spectral_emb_dim', type=int, default=10)
@@ -48,10 +44,8 @@ def parse_args():
     parser.add_argument('--n_layers_denoise', type=int, default=3)
     parser.add_argument('--no_train_denoiser', action='store_false', dest='train_denoiser', help="If specified, do not train the denoiser.")
     parser.add_argument('--n_properties', type=int, default=0)
-    parser.add_argument('--dim_condition', type=int, default=0)
-    parser.add_argument('--cond', action='store_true', help='If specified use conditional generation, otherwise conditioning is switched off.')
     parser.add_argument('--no_wandb', action='store_false', dest='wandb', help="If specified disables wandb logging")
-    parser.add_argument('--wandb_proj', type=str, default='diffusion_recon')
+    parser.add_argument('--wandb_proj', type=str, default='ViTDiffusion')
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
     parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt')
@@ -60,13 +54,19 @@ def parse_args():
     parser.add_argument('--min_lr', type=float, help="Minimum learning rate for CosineAnnealingWarmupRestarts", default=0.00001)
     parser.add_argument('--loss_type', type=str, help="Choose between 'huber' and 'l2'", default='huber')
     parser.add_argument('--train_mode', type=str, default='noise', help="Select diffusion objective: 'reconstruct' to predict reconstructed samples, 'noise' to predict noise.")
+    parser.add_argument('--time_dim', type=int, help="Dimention of the time positional embedding after the time mlp", default=64)
+    parser.add_argument('--window_size', type=int, help="Number of frames per video", default=10)
+    parser.add_argument('--short_threshold', type=int, help="If the number of frames per video is inferior to this treshold, the video is not considered")
+    parser.add_argument('--fixed_frames', type=int, help="Number of frames that will be noise free in the diffusion model")
+    parser.add_argument('--heads', type=int, help="Attention heads for the ViT")
+    parser.add_argument('--depth', type=int, help="Number of attention blocks ")
     args = parser.parse_args()
     return args
 
 def main():
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    # get datasets and split in train, test and validation
+    # get train and validation datasets
     args = parse_args()
     with open(args.ann_path + 'verbs.txt') as f:
         verbs = [l.strip() for l in f.readlines()]
@@ -83,15 +83,12 @@ def main():
     path_annts = Path(args.ann_path)
     path_data = Path(args.data_path)
 
-    # check if conditioning is activated
-    if args.cond:
-        print('Conditioning applied.')
-        n_properties = args.n_properties
-        dim_condition = args.dim_condition
-    else:
-        print('No conditioning applied.')
-        n_properties = 0
-        dim_condition = 0
+    
+    validation_dataset = EASGvideo(path_annts, path_data, 'val', verbs, objs, rels)
+    train_dataset = EASGvideo(path_annts, path_data, 'train', verbs, objs, rels)
+
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
+    val_loader = DataLoader(validation_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False)
 
     # check train mode:
     if args.train_mode == 'noise':
@@ -99,19 +96,7 @@ def main():
     elif args.train_mode == 'reconstruct':
         print("Training with denoised sample as objective function.")
     else: 
-        raise Exception("Wrong taining mode.")
-
-    # original dataset only has train and validation, 
-    validation_dataset = EASGDatasetAE(path_annts, path_data, 'val', verbs, objs, rels)
-    train_dataset = EASGDatasetAE(path_annts, path_data, 'train', verbs, objs, rels)
-
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
-    val_loader = DataLoader(validation_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False)
-    
-    # load the variational autoencoder
-    vae = load_model('vae', args.vae_path, separate=True, output_dim=args.latent_dim)
-    vae = vae.to(device)
-    vae.eval()
+        raise Exception("Wrong training mode.")
 
     # define beta schedule
     betas = linear_beta_schedule(timesteps=args.timesteps)
@@ -129,7 +114,9 @@ def main():
     # calculations for posterior q(x_{t-1} | x_t, x_0)
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
-    denoise_model = DenoiseNN(input_dim=args.latent_dim, hidden_dim=args.hidden_dim_denoise, n_layers=args.n_layers_denoise, n_cond=n_properties, d_cond=dim_condition, norm_type=args.norm_type).to(device)
+    # creating model and optimizer
+    pe = positional_encoding(args.latent_dim, args.window_size, args.batch_size)
+    denoise_model = DenoiseNN(depth=args.depth, heads=args.heads, d_model=args.latent_dim, hidden_dim=args.hidden_dim_denoise, n_layers=args.n_layers_denoise, norm_type=args.norm_type, time_dim=args.time_dim).to(device)
     optimizer = torch.optim.Adam(denoise_model.parameters(), lr=args.lr)
     if args.scheduler_type == 'step':
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.1)
@@ -156,20 +143,14 @@ def main():
             denoise_model.train()
             train_loss_all = 0
             train_count = 0
-            for data in train_loader:
-                batch, verb_gt, rel_gt = data
+            for batch in train_loader:
                 batch = batch.to(device)
-                with torch.no_grad():
-                    x_g = vae.encode(batch)
-                if args.cond:
-                    conditioning = batch.stats
-                else: conditioning = None
                 optimizer.zero_grad()
-                t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
-                loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type, mode=args.train_mode)
+                t = torch.randint(0, args.timesteps, (batch.size(0),), device=device).long()
+                loss = p_losses(denoise_model, batch, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type, mode=args.train_mode, num_fixed_frames=args.fixed_frames)
                 loss.backward()
-                train_loss_all += x_g.size(0) * loss.item()
-                train_count += x_g.size(0)
+                train_loss_all += batch.size(0) * loss.item()
+                train_count += batch.size(0)
                 optimizer.step()
                 if args.scheduler_type=='warmup':
                     scheduler.step()
@@ -180,18 +161,12 @@ def main():
                 denoise_model.eval()
                 val_loss_all = 0
                 val_count = 0
-                for data in val_loader:
-                    batch, verb_gt, rel_gt = data
+                for batch in val_loader:
                     batch = batch.to(device)
-                    with torch.no_grad():
-                        x_g = vae.encode(batch)
-                    if args.cond:
-                        conditioning = batch.stats
-                    else: conditioning = None
-                    t = torch.randint(0, args.timesteps, (x_g.size(0),), device=device).long()
-                    loss = p_losses(denoise_model, x_g, t, conditioning, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type)
-                    val_loss_all += x_g.size(0) * loss.item()
-                    val_count += x_g.size(0)
+                    t = torch.randint(0, args.timesteps, (batch.size(0),), device=device).long()
+                    loss = p_losses(denoise_model, batch, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type, num_fixed_frames=args.fixed_frames)
+                    val_loss_all += batch.size(0) * loss.item()
+                    val_count += batch.size(0)
 
                 # log info 
                 dt_t = datetime.now().strftime("%d/%m/%Y %H:%M:%S")

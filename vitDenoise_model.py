@@ -118,7 +118,7 @@ class SimpleViT(nn.Module):
      
 # Denoise model
 class DenoiseNN(nn.Module):
-    def __init__(self, window_size, depth, heads, d_model, hidden_dim, n_layers, norm_type, time_dim=64):
+    def __init__(self, depth, heads, d_model, hidden_dim, n_layers, norm_type, time_dim=64):
         super(DenoiseNN, self).__init__()
         self.norm_type = norm_type
 
