@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument('--train_mode', type=str, default='noise', help="Select diffusion objective: 'reconstruct' to predict reconstructed samples, 'noise' to predict noise.")
     parser.add_argument('--time_dim', type=int, help="Dimention of the time positional embedding after the time mlp", default=64)
     parser.add_argument('--window_size', type=int, help="Number of frames per video", default=10)
-    parser.add_argument('--short_threshold', type=int, help="If the number of frames per video is inferior to this treshold, the video is not considered", default=10)
+    parser.add_argument('--threshold', type=int, help="If the number of frames per video is inferior to this treshold, the video is not considered", default=10)
     parser.add_argument('--fixed_frames', type=int, help="Number of frames that will be noise free in the diffusion model", default=5)
     parser.add_argument('--heads', type=int, help="Attention heads for the ViT", default=3)
     parser.add_argument('--depth', type=int, help="Number of attention blocks for the ViT", default=5)
@@ -64,8 +64,8 @@ def main():
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     # get train and validation datasets
-    train_dataset = EASGvideo(args.train_path, threshold=args.short_threshold, window_size=args.window_size)
-    validation_dataset = EASGvideo(args.val_path, threshold=args.short_threshold, window_size=args.window_size)
+    train_dataset = EASGvideo(args.train_path, threshold=args.threshold, window_size=args.window_size)
+    validation_dataset = EASGvideo(args.val_path, threshold=args.threshold, window_size=args.window_size)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
     val_loader = DataLoader(validation_dataset, batch_size=args.batch_size)
@@ -110,7 +110,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion_t={args.timesteps}_mode={args.train_mode}_lr={args.lr}_heads={args.heads}_depth={args.heads}_window={args.window_size}_fixedfr={args.fixed_frames}_treshold={args.short_threshold}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion_t={args.timesteps}_mode={args.train_mode}_lr={args.lr}_heads={args.heads}_depth={args.heads}_window={args.window_size}_fixedfr={args.fixed_frames}_treshold={args.threshold}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
