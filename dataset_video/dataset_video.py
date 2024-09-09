@@ -39,6 +39,9 @@ class EASGvideo(Dataset):
 
         self.dataset_original = torch.load(dataset_path)
         self.long_videos = filter_short_videos(self.dataset_original, self.threshold)
+
+        if self.window_size > self.threshold:
+            raise Exception("window_size > threshold, may try to get more frames than available.")
  
     def __len__(self):
         return len(self.long_videos)
