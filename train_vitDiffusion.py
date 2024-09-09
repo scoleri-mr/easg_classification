@@ -126,7 +126,6 @@ def main():
                 pe = positional_encoding(args.latent_dim, args.window_size, batch.size(0))  # I need this in the loop because batch size changes at the last batch
                 optimizer.zero_grad()
                 t = torch.randint(0, args.timesteps, (batch.size(0),), device=device).long()
-                print(f"TRAIN t.size(): {t.size()}")
                 loss = p_losses(denoise_model, batch, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type, mode=args.train_mode, num_fixed_frames=args.fixed_frames)
                 loss.backward()
                 train_loss_all += batch.size(0) * loss.item()
@@ -145,7 +144,6 @@ def main():
                     batch = batch.to(device)
                     pe = positional_encoding(args.latent_dim, args.window_size, batch.size(0))
                     t = torch.randint(0, args.timesteps, (batch.size(0),), device=device).long()
-                    print(f"VAL t.size(): {t.size()}")
                     loss = p_losses(denoise_model, batch, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type, num_fixed_frames=args.fixed_frames)
                     val_loss_all += batch.size(0) * loss.item()
                     val_count += batch.size(0)
