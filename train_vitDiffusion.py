@@ -110,7 +110,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion_t={args.timesteps}_mode={args.train_mode}_lr={args.lr}_heads={args.heads}_depth={args.heads}_window={args.window_size}_fixedfr={args.fixed_frames}_treshold={args.threshold}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion_t={args.timesteps}_mode={args.train_mode}_lr={args.lr}_heads={args.heads}_depth={args.depth}_window={args.window_size}_fixedfr={args.fixed_frames}_treshold={args.threshold}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
