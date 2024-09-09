@@ -142,16 +142,11 @@ class DenoiseNN(nn.Module):
  
     def forward(self, x, t, pe):
         t = self.time_mlp(t).unsqueeze(1)
-        print(f"t.size(): {t.size()}")
         t_extended = t.repeat(1,x.size(1),1)
-        print(f"t_extended.size(): {t_extended.size()}")
         pe = self.pos_mlp(pe)
-        print(f"pe.size(): {pe.size()}")
 
         x_final = torch.cat(((x+pe), t_extended), dim=2)
-        print(f"x_final.size(): {x_final.size()}")        
         x_final = self.ViT(x_final)
-        print(f"x_final.size() after vit: {x_final.size()}")    
         return x_final
 
 @torch.no_grad()
