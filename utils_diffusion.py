@@ -17,8 +17,11 @@ from torch_geometric.data import Data
 from grakel.utils import graph_from_networkx
 from grakel.kernels import WeisfeilerLehman, VertexHistogram
 
-from vitDenoise_model import sample, DenoiseViT, q_sample, positional_encoding
-from denoise_model import DenoiseNN
+from vitDenoise_model import positional_encoding, DenoiseViT
+from vitDenoise_model import sample as ViTsample
+from vitDenoise_model import q_sample as q_ViTsample
+
+from denoise_model import sample, q_sample, DenoiseNN
 from utils import load_model
 
 def handle_nan(x):
@@ -344,5 +347,5 @@ def get_denoised_videos(valloader, diff_path, timesteps, depth, heads, time_dim,
             pe = positional_encoding(latent_dim, window_size, batch.size(0))
             shape = (batch.size(0), window_size-num_fixed_frames, latent_dim)
             start_noise = torch.cat((batch[:,:num_fixed_frames,:], torch.randn(shape, device=device)), dim=1)
-            samples = sample(denoise_model, latent_dim, window_size, timesteps, pe, betas, batch_size, start_noise=start_noise, mode=mode)
+            samples = ViTsample(denoise_model, latent_dim, window_size, timesteps, pe, betas, batch_size, start_noise=start_noise, mode=mode)
     return samples[-1]
