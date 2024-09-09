@@ -17,7 +17,7 @@ from torch_geometric.data import Data
 from grakel.utils import graph_from_networkx
 from grakel.kernels import WeisfeilerLehman, VertexHistogram
 
-from denoise_model import sample, DenoiseNN, q_sample
+from vitDenoise_model import sample, DenoiseNN, q_sample
 from utils import load_model
 
 def construct_nx_from_adj(adj):

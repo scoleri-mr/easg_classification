@@ -8,10 +8,10 @@ from torch.utils.data import Dataset, DataLoader
     contains the encoded versions of the frames obtained with a trained vae.
     The getitem returns a random window from the video at the given index
 """
-def filter_short_videos(dataset_original, treshold):
+def filter_short_videos(dataset_original, threshold):
     long_videos = []
     for video_id, frames in dataset_original.items():
-        if len(frames)>=treshold:
+        if len(frames)>=threshold:
             long_videos.append(frames)
     return long_videos
 
@@ -32,13 +32,13 @@ def get_subvideos(self, train_video_original):
     return final_videos
 
 class EASGvideo(Dataset):
-    def __init__(self, dataset_path, treshold=20, window_size=20, original=False):
+    def __init__(self, dataset_path, threshold=20, window_size=20, original=False):
         self.window_size = window_size
-        self.treshold = treshold
+        self.threshold = threshold
         self.original = original
 
         self.dataset_original = torch.load(dataset_path)
-        self.long_videos = filter_short_videos(self.dataset_original, self.treshold)
+        self.long_videos = filter_short_videos(self.dataset_original, self.threshold)
  
     def __len__(self):
         return len(self.long_videos)
@@ -47,7 +47,7 @@ class EASGvideo(Dataset):
         return random_window_selection(self.long_videos[idx], self.window_size)
     
 def main():
-    dataset = EASGvideo("easg_classification/dataset_video/encoded_videos_train_256.pth", treshold=20, window_size=20, shift=10, original=False)
+    dataset = EASGvideo("easg_classification/dataset_video/encoded_videos_train_256.pth", threshold=20, window_size=20, shift=10, original=False)
     dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
     
     # Print dataset size

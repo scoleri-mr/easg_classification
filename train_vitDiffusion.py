@@ -18,7 +18,7 @@ import wandb
 import torch.nn.functional as F
 from torch_geometric.loader import DataLoader
 
-from easg_classification.vitDenoise_model import DenoiseNN, p_losses, positional_encoding, sample
+from vitDenoise_model import DenoiseNN, p_losses, positional_encoding, sample
 from utils_diffusion import linear_beta_schedule
 from dataset_video.dataset_video import EASGvideo
 from utils import load_model, save_checkpoint
@@ -29,66 +29,46 @@ np.random.seed(13)
 # Argument parser
 def parse_args():
     parser = argparse.ArgumentParser(description='TrainDiffusion')
-    parser.add_argument('--ann_path', type=str, default='./annts_in_new_format/', help='path to annotations')
-    parser.add_argument('--data_path', type=str, default='./data/', help='path to ROI and clip features')
     parser.add_argument('--exp_name', type=str, default=None, help='experiment name')
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--latent_dim', type=int, default=256)
-    parser.add_argument('--n_max_nodes', type=int, default=100)
     parser.add_argument('--spectral_emb_dim', type=int, default=10)
     parser.add_argument('--epochs_denoise', type=int, default=2000)
     parser.add_argument('--timesteps', type=int, default=1000)
     parser.add_argument('--hidden_dim_denoise', type=int, default=256)
-    parser.add_argument('--n_layers_denoise', type=int, default=3)
     parser.add_argument('--no_train_denoiser', action='store_false', dest='train_denoiser', help="If specified, do not train the denoiser.")
-    parser.add_argument('--n_properties', type=int, default=0)
     parser.add_argument('--no_wandb', action='store_false', dest='wandb', help="If specified disables wandb logging")
     parser.add_argument('--wandb_proj', type=str, default='ViTDiffusion')
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
     parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt')
-    parser.add_argument('--norm_type', type=str, help='normalization layer for diffusion model', default='layer')
     parser.add_argument('--scheduler_type', type=str, help="Choose 'step' for StepLR and 'warmup' for CosineAnnealingWarmupRestarts. Use lr as parameter for max_lr in warmup.", default='warmup')
     parser.add_argument('--min_lr', type=float, help="Minimum learning rate for CosineAnnealingWarmupRestarts", default=0.00001)
     parser.add_argument('--loss_type', type=str, help="Choose between 'huber' and 'l2'", default='huber')
     parser.add_argument('--train_mode', type=str, default='noise', help="Select diffusion objective: 'reconstruct' to predict reconstructed samples, 'noise' to predict noise.")
     parser.add_argument('--time_dim', type=int, help="Dimention of the time positional embedding after the time mlp", default=64)
     parser.add_argument('--window_size', type=int, help="Number of frames per video", default=10)
-    parser.add_argument('--short_threshold', type=int, help="If the number of frames per video is inferior to this treshold, the video is not considered")
-    parser.add_argument('--fixed_frames', type=int, help="Number of frames that will be noise free in the diffusion model")
-    parser.add_argument('--heads', type=int, help="Attention heads for the ViT")
-    parser.add_argument('--depth', type=int, help="Number of attention blocks ")
+    parser.add_argument('--short_threshold', type=int, help="If the number of frames per video is inferior to this treshold, the video is not considered", default=10)
+    parser.add_argument('--fixed_frames', type=int, help="Number of frames that will be noise free in the diffusion model", default=5)
+    parser.add_argument('--heads', type=int, help="Attention heads for the ViT", default=3)
+    parser.add_argument('--depth', type=int, help="Number of attention blocks for the ViT", default=5)
+    parser.add_argument('--train_path', help="path for training dataset", default="./dataset_video/encoded_videos_train_256.pth")
+    parser.add_argument('--val_path', help="path for validation dataset", default="./dataset_video/encoded_videos_validation_256.pth")
     args = parser.parse_args()
     return args
 
 def main():
+    args = parse_args()
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     # get train and validation datasets
-    args = parse_args()
-    with open(args.ann_path + 'verbs.txt') as f:
-        verbs = [l.strip() for l in f.readlines()]
-    num_verbs = len(verbs)
+    train_dataset = EASGvideo(args.train_path, threshold=args.short_threshold, window_size=args.window_size)
+    validation_dataset = EASGvideo(args.val_path, threshold=args.short_threshold, window_size=args.window_size)
 
-    with open(args.ann_path + 'objects.txt') as f:
-        objs = [l.strip() for l in f.readlines()]
-    num_objs = len(objs)
-
-    with open(args.ann_path + 'relationships.txt') as f:
-        rels = [l.strip() for l in f.readlines()]
-    num_rels = len(rels)
-
-    path_annts = Path(args.ann_path)
-    path_data = Path(args.data_path)
-
-    
-    validation_dataset = EASGvideo(path_annts, path_data, 'val', verbs, objs, rels)
-    train_dataset = EASGvideo(path_annts, path_data, 'train', verbs, objs, rels)
-
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
-    val_loader = DataLoader(validation_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
+    val_loader = DataLoader(validation_dataset, batch_size=args.batch_size)
 
     # check train mode:
     if args.train_mode == 'noise':
@@ -115,8 +95,7 @@ def main():
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
     # creating model and optimizer
-    pe = positional_encoding(args.latent_dim, args.window_size, args.batch_size)
-    denoise_model = DenoiseNN(depth=args.depth, heads=args.heads, d_model=args.latent_dim, hidden_dim=args.hidden_dim_denoise, n_layers=args.n_layers_denoise, norm_type=args.norm_type, time_dim=args.time_dim).to(device)
+    denoise_model = DenoiseNN(depth=args.depth, heads=args.heads, d_model=args.latent_dim, hidden_dim=args.hidden_dim_denoise, time_dim=args.time_dim).to(device)
     optimizer = torch.optim.Adam(denoise_model.parameters(), lr=args.lr)
     if args.scheduler_type == 'step':
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.1)
@@ -131,22 +110,23 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion_tsteps={args.timesteps}_nlayer={args.n_layers_denoise}_ldim={args.latent_dim}_lr={args.lr}_sch={args.scheduler_type}_loss={args.loss_type}_dcond={args.dim_condition}_mode={args.train_mode}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion_t={args.timesteps}_mode={args.train_mode}_lr={args.lr}_heads={args.heads}_depth={args.heads}_window={args.window_size}_fixedfr={args.fixed_frames}_treshold={args.short_threshold}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
             wandb.watch(denoise_model, log="all")   
 
         # Train denoising model
-        best_val_loss = np.inf
         for epoch in range(1, args.epochs_denoise+1):
             denoise_model.train()
             train_loss_all = 0
             train_count = 0
             for batch in train_loader:
                 batch = batch.to(device)
+                pe = positional_encoding(args.latent_dim, args.window_size, batch.size(0))  # I need this in the loop because batch size changes at the last batch
                 optimizer.zero_grad()
                 t = torch.randint(0, args.timesteps, (batch.size(0),), device=device).long()
+                print(f"TRAIN t.size(): {t.size()}")
                 loss = p_losses(denoise_model, batch, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type, mode=args.train_mode, num_fixed_frames=args.fixed_frames)
                 loss.backward()
                 train_loss_all += batch.size(0) * loss.item()
@@ -163,7 +143,9 @@ def main():
                 val_count = 0
                 for batch in val_loader:
                     batch = batch.to(device)
+                    pe = positional_encoding(args.latent_dim, args.window_size, batch.size(0))
                     t = torch.randint(0, args.timesteps, (batch.size(0),), device=device).long()
+                    print(f"VAL t.size(): {t.size()}")
                     loss = p_losses(denoise_model, batch, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, loss_type=args.loss_type, num_fixed_frames=args.fixed_frames)
                     val_loss_all += batch.size(0) * loss.item()
                     val_count += batch.size(0)
@@ -175,7 +157,7 @@ def main():
                 if args.wandb: wandb.log({"val loss": val_loss_all/val_count})
 
                 # checkpoint
-                save_dir = f"./experiments/diffusion_recon/{args.exp_name}/checkpoints"
+                save_dir = f"./experiments/vitDiffusion/{args.exp_name}/checkpoints"
                 os.makedirs(save_dir, exist_ok=True)
                 save_checkpoint(model=denoise_model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
             

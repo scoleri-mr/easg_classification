@@ -118,9 +118,8 @@ class SimpleViT(nn.Module):
      
 # Denoise model
 class DenoiseNN(nn.Module):
-    def __init__(self, depth, heads, d_model, hidden_dim, n_layers, norm_type, time_dim=64):
+    def __init__(self, depth, heads, d_model, hidden_dim, time_dim=64):
         super(DenoiseNN, self).__init__()
-        self.norm_type = norm_type
 
         # time encoding
         self.time_mlp = nn.Sequential(
@@ -138,26 +137,21 @@ class DenoiseNN(nn.Module):
         )
 
         self.ViT = SimpleViT(dim=d_model+time_dim, time_dim=time_dim, depth=depth, heads=heads, mlp_dim=hidden_dim)
-
-        if self.norm_type == 'batch':
-            n_layers = [nn.BatchNorm1d(hidden_dim) for i in range(n_layers-1)]
-            self.bn = nn.ModuleList(n_layers)
-        elif self.norm_type == 'layer':
-            n_layers = [nn.LayerNorm(hidden_dim) for i in range(n_layers-1)]
-            self.ln = nn.ModuleList(n_layers)
-        else:
-            raise Exception("Wrong normalization layer. Choose between 'batch' and 'layer'.")
-
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
  
     def forward(self, x, t, pe):
         t = self.time_mlp(t).unsqueeze(1)
+        print(f"t.size(): {t.size()}")
         t_extended = t.repeat(1,x.size(1),1)
+        print(f"t_extended.size(): {t_extended.size()}")
         pe = self.pos_mlp(pe)
+        print(f"pe.size(): {pe.size()}")
 
         x_final = torch.cat(((x+pe), t_extended), dim=2)
+        print(f"x_final.size(): {x_final.size()}")        
         x_final = self.ViT(x_final)
+        print(f"x_final.size() after vit: {x_final.size()}")    
         return x_final
 
 @torch.no_grad()
@@ -236,7 +230,6 @@ def main():
     heads = 6
     hidden_dim = feature_dim
     d_model = feature_dim
-    n_layers = 4
     timesteps = 10
     betas = torch.linspace(0.1, 0.2, timesteps)
     num_fixed_frames = 5
@@ -244,7 +237,7 @@ def main():
 
     # Initialize model
     denoise_model = DenoiseNN(window_size=window_size, depth=depth, heads=heads, d_model=d_model,
-                              hidden_dim=hidden_dim, n_layers=n_layers, norm_type='layer')
+                              hidden_dim=hidden_dim, norm_type='layer')
     denoise_model.to('cuda')
 
     # load the dataset and create random noise
@@ -253,10 +246,6 @@ def main():
     train_dataset = EASGvideo(train_path)
     trainloader = DataLoader(train_dataset, batch_size=batch_size)
     t = torch.randint(0, timesteps, (batch_size,), device='cuda').long()
-    print(t.size())
-    
-    # Create positional encoding
-    pe = positional_encoding(feature_dim, sequence_length, batch_size)
 
     # Define alpha and noise parameters
     alphas = 1. - betas
@@ -268,7 +257,8 @@ def main():
     noise = None
     for batch in trainloader:
         batch.to('cuda')
-        print(f"batch.size: {batch.size()}")
+        # Create positional encoding
+        pe = positional_encoding(feature_dim, sequence_length, batch.size(0))
         loss = p_losses(denoise_model, batch, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=noise, mode=mode, num_fixed_frames=num_fixed_frames)
         print(f"Loss: {loss.item()}")
         break
