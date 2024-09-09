@@ -17,7 +17,8 @@ from torch_geometric.data import Data
 from grakel.utils import graph_from_networkx
 from grakel.kernels import WeisfeilerLehman, VertexHistogram
 
-from vitDenoise_model import sample, DenoiseNN, q_sample, positional_encoding
+from vitDenoise_model import sample, DenoiseViT, q_sample, positional_encoding
+from denoise_model import DenoiseNN
 from utils import load_model
 
 def handle_nan(x):
@@ -327,7 +328,7 @@ def get_denoised_samples(diff_path, timesteps, norm_type, num_samples=64, latent
     return samples[-1]
 
 def load_vitDiffusion(diff_path, latent_dim, hidden_dim_diffusion, depth, heads, time_dim=64, device='cuda'):
-    diffusion_model = DenoiseNN(depth=depth, heads=heads, d_model=latent_dim, hidden_dim=hidden_dim_diffusion, time_dim=time_dim).to(device)
+    diffusion_model = DenoiseViT(depth=depth, heads=heads, d_model=latent_dim, hidden_dim=hidden_dim_diffusion, time_dim=time_dim).to(device)
     diffusion_model.load_state_dict(torch.load(diff_path)['model_state_dict'])
     return diffusion_model
 

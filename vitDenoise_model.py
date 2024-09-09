@@ -117,9 +117,9 @@ class SimpleViT(nn.Module):
         return self.linear_head(x)  # Project back to the original dimension (batch_size, sequence_length, code_dim)
      
 # Denoise model
-class DenoiseNN(nn.Module):
+class DenoiseViT(nn.Module):
     def __init__(self, depth, heads, d_model, hidden_dim, time_dim=64):
-        super(DenoiseNN, self).__init__()
+        super(DenoiseViT, self).__init__()
 
         # time encoding
         self.time_mlp = nn.Sequential(
@@ -231,7 +231,7 @@ def main():
     mode = 'noise'  # Can be 'noise' or 'reconstruct'
 
     # Initialize model
-    denoise_model = DenoiseNN(window_size=window_size, depth=depth, heads=heads, d_model=d_model,
+    denoise_model = DenoiseViT(window_size=window_size, depth=depth, heads=heads, d_model=d_model,
                               hidden_dim=hidden_dim, norm_type='layer')
     denoise_model.to('cuda')
 

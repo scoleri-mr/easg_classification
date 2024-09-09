@@ -18,7 +18,7 @@ import wandb
 import torch.nn.functional as F
 from torch_geometric.loader import DataLoader
 
-from vitDenoise_model import DenoiseNN, p_losses, positional_encoding, sample
+from vitDenoise_model import DenoiseViT, p_losses, positional_encoding, sample
 from utils_diffusion import linear_beta_schedule
 from dataset_video.dataset_video import EASGvideo
 from utils import load_model, save_checkpoint
@@ -95,7 +95,7 @@ def main():
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
     # creating model and optimizer
-    denoise_model = DenoiseNN(depth=args.depth, heads=args.heads, d_model=args.latent_dim, hidden_dim=args.hidden_dim_denoise, time_dim=args.time_dim).to(device)
+    denoise_model = DenoiseViT(depth=args.depth, heads=args.heads, d_model=args.latent_dim, hidden_dim=args.hidden_dim_denoise, time_dim=args.time_dim).to(device)
     optimizer = torch.optim.Adam(denoise_model.parameters(), lr=args.lr)
     if args.scheduler_type == 'step':
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.1)
