@@ -17,51 +17,8 @@ from torch_geometric.data import Data
 from grakel.utils import graph_from_networkx
 from grakel.kernels import WeisfeilerLehman, VertexHistogram
 
-from vitDenoise_model import sample, DenoiseNN, q_sample
+from vitDenoise_model import sample, DenoiseNN, q_sample, positional_encoding
 from utils import load_model
-
-def construct_nx_from_adj(adj):
-    G = nx.from_numpy_array(adj, create_using=nx.Graph)
-    to_remove = []
-    for node in G.nodes():
-        if G.degree(node) == 0:
-            to_remove.append(node)
-    G.remove_nodes_from(to_remove)
-    return G
-
-
-def eval_autoencoder(test_loader, autoencoder, n_max_nodes, device):
-    Gs = []
-    Gs_rec = []
-    sims = []
-    for data in test_loader:
-        Gs = []
-        Gs_rec = []
-
-        data = data.to(device)
-        adj_rec = autoencoder(data)
-        adj_rec[adj_rec>0.5] = 1
-        adj_rec[adj_rec<=0.5] = 0
-
-        for i in range(data.A.size(0)):
-            Gs.append(construct_nx_from_adj(data.A[i,:,:].detach().cpu().numpy()))
-            Gs_rec.append(construct_nx_from_adj(adj_rec[i,:,:].detach().cpu().numpy()))
-
-        for G in Gs:
-            for node in G.nodes():
-                G.nodes[node]['label'] = 1
-
-        for G in Gs_rec:
-            for node in G.nodes():
-                G.nodes[node]['label'] = 1
-
-        Gs_pairs = [graph_from_networkx([Gs[i], Gs_rec[i]], node_labels_tag='label') for i in range(len(Gs))]
-        wl_kernel = WeisfeilerLehman(n_iter=3, normalize=True, base_graph_kernel=VertexHistogram)
-
-        for i in range(len(Gs_pairs)):
-            K = wl_kernel.fit_transform(Gs_pairs[i])
-            sims.append(K[0,1])
-    print('Average similarity:', np.mean(sims))
 
 def handle_nan(x):
     if math.isnan(x):
@@ -81,109 +38,6 @@ def read_stats(file):
         stats.append(float(tokens[-1].strip()))
     fread.close()
     return stats
-
-def create_dataset(Gs, pos_enc_dim, max_n_nodes):
-    data = []
-    for G in Gs:
-        n = G.number_of_nodes()
-        row, col = [], []
-        for edge in G.edges():
-            row.append(edge[0])
-            col.append(edge[1])
-
-            row.append(edge[1])
-            col.append(edge[0])
-
-        x = positional_encoding(row, col, n, pos_enc_dim)
-        x = torch.tensor(x, dtype=torch.float)
-        edge_index = torch.tensor([row, col], dtype=torch.long)
-        adj = torch.zeros(max_n_nodes, max_n_nodes)
-        adj[edge_index[0,:], edge_index[1,:]] = 1
-        data.append(Data(x=x, edge_index=edge_index, adj=adj))
-    return data
-
-class CustomDataset(Dataset):
-    """ Based on https://github.com/lrjconan/GRAN/blob/master/utils/data_helper.py#L192 """
-
-    def __init__(self, k, same_sample=False, ignore_first_eigv=False):
-        min_num_nodes=20
-        max_num_nodes=50
-        filename = f'data/custom_{min_num_nodes}_{max_num_nodes}{"_same_sample" if same_sample else ""}.pt'
-        self.k = k
-        self.ignore_first_eigv = ignore_first_eigv
-        if os.path.isfile(filename):
-            self.adjs, self.eigvals, self.eigvecs, self.n_nodes, self.max_eigval, self.min_eigval, self.same_sample, self.n_max = torch.load(filename)
-            print(f'Dataset {filename} loaded from file')
-        else:
-            Gs = [nx.ladder_graph(i) for i in range(10, 26)] + [nx.wheel_graph(i) for i in range(20, 51)] + [nx.cycle_graph(i) for i in range(20, 51)]+[nx.path_graph(i) for i in range(20, 51)]+[nx.star_graph(i) for i in range(19, 50)]
-
-            self.adjs = []
-            self.eigvals = []
-            self.eigvecs = []
-            self.n_nodes = []
-            self.n_max = 0
-            self.max_eigval = 0
-            self.min_eigval = 0
-            self.same_sample = same_sample
-
-            for G in Gs:
-                if G.number_of_nodes() >= min_num_nodes and G.number_of_nodes() <= max_num_nodes:
-                    adj = torch.from_numpy(nx.to_numpy_matrix(G)).float()
-                    #L = nx.normalized_laplacian_matrix(G).toarray()
-                    diags = np.sum(nx.to_numpy_matrix(G), axis=0)
-                    diags = np.squeeze(np.asarray(diags))
-                    D = sp.sparse.diags(diags).toarray()
-                    L = D - nx.to_numpy_matrix(G)
-                    with sp.errstate(divide="ignore"):
-                        diags_sqrt = 1.0 / np.sqrt(diags)
-                    diags_sqrt[np.isinf(diags_sqrt)] = 0
-                    DH = sp.sparse.diags(diags).toarray()
-                    L = np.linalg.multi_dot((DH, L, DH))
-                    L = torch.from_numpy(L).float()
-                    eigval, eigvec = torch.linalg.eigh(L)
-
-                    self.eigvals.append(eigval)
-                    self.eigvecs.append(eigvec)
-                    self.adjs.append(adj)
-                    self.n_nodes.append(G.number_of_nodes())
-                    if G.number_of_nodes() > self.n_max:
-                        self.n_max = G.number_of_nodes()
-                    max_eigval = torch.max(eigval)
-                    if max_eigval > self.max_eigval:
-                        self.max_eigval = max_eigval
-                    min_eigval = torch.min(eigval)
-                    if min_eigval < self.min_eigval:
-                        self.min_eigval = min_eigval
-
-            torch.save([self.adjs, self.eigvals, self.eigvecs, self.n_nodes, self.max_eigval, self.min_eigval, self.same_sample, self.n_max], filename)
-            print(f'Dataset {filename} saved')
-
-        self.max_k_eigval = 0
-        for eigv in self.eigvals:
-            last_idx = self.k if self.k < len(eigv) else len(eigv) - 1
-            if eigv[last_idx] > self.max_k_eigval:
-                self.max_k_eigval = eigv[last_idx].item()
-
-    def __len__(self):
-        return len(self.adjs)
-
-    def __getitem__(self, idx):
-        if self.same_sample:
-            idx = self.__len__() - 1
-        graph = {}
-        graph["n_nodes"] = self.n_nodes[idx]
-        size_diff = self.n_max - graph["n_nodes"]
-        graph["adj"] = F.pad(self.adjs[idx], [0, size_diff, 0, size_diff])
-        eigvals = self.eigvals[idx]
-        eigvecs = self.eigvecs[idx]
-        if self.ignore_first_eigv:
-            eigvals = eigvals[1:]
-            eigvecs = eigvecs[:,1:]
-            size_diff += 1
-        graph["eigval"] = F.pad(eigvals, [0, max(0, self.n_max - eigvals.size(0))])
-        graph["eigvec"] = F.pad(eigvecs, [0, size_diff, 0, size_diff])
-        graph["mask"] = F.pad(torch.ones_like(self.adjs[idx]), [0, size_diff, 0, size_diff]).long()
-        return graph
 
 def masked_instance_norm2D(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-5):
     """
@@ -471,4 +325,23 @@ def get_denoised_samples(diff_path, timesteps, norm_type, num_samples=64, latent
     with torch.no_grad():
         samples = sample(denoise_model, cond=cond, latent_dim=latent_dim, timesteps=timesteps, betas=betas, batch_size=num_samples, mode=mode)
     return samples[-1]
-    
+
+def load_vitDiffusion(diff_path, latent_dim, hidden_dim_diffusion, depth, heads, time_dim=64, device='cuda'):
+    diffusion_model = DenoiseNN(depth=depth, heads=heads, d_model=latent_dim, hidden_dim=hidden_dim_diffusion, time_dim=time_dim).to(device)
+    diffusion_model.load_state_dict(torch.load(diff_path)['model_state_dict'])
+    return diffusion_model
+
+def get_denoised_videos(valloader, diff_path, timesteps, depth, heads, time_dim, window_size, num_fixed_frames, batch_size=1, latent_dim=256, hidden_dim_diffusion=256, mode='noise'):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    betas = linear_beta_schedule(timesteps=timesteps)
+    denoise_model = load_vitDiffusion(diff_path, latent_dim, hidden_dim_diffusion, depth, heads, time_dim, device='cuda')
+    denoise_model.to(device)
+    denoise_model.eval()
+    with torch.no_grad():
+        for batch in valloader:
+            batch = batch.to(device)
+            pe = positional_encoding(latent_dim, window_size, batch.size(0))
+            shape = (batch.size(0), window_size-num_fixed_frames, latent_dim)
+            start_noise = torch.cat((batch[:,:num_fixed_frames,:], torch.randn(shape, device=device)), dim=1)
+            samples = sample(denoise_model, latent_dim, window_size, timesteps, pe, betas, batch_size, start_noise=start_noise, mode=mode)
+    return samples[-1]
