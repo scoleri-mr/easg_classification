@@ -56,6 +56,7 @@ def main():
         vae_path = args.vae_path
 
     vae = load_model('vae', vae_path, separate=True, output_dim=args.latent_dim)
+    vae.eval()
 
     # from the video datasets, create two dictionaries 
     # (one for train and one for val) with entries:
