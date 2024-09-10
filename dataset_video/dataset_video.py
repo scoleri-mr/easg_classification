@@ -72,8 +72,8 @@ def main():
     for batch_idx, batch_data in enumerate(dataloader):
         print(f"Batch {batch_idx+1}:")
         print(batch_data)
-        if batch_idx >= 2:  # Limit to 3 batches for debugging
-            break
+        # if batch_idx >= 2:  # Limit to 3 batches for debugging
+        #     break
 
 if __name__ == "__main__":
     main()

@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument('--hidden_dim_denoise', type=int, default=256)
     parser.add_argument('--no_train_denoiser', action='store_false', dest='train_denoiser', help="If specified, do not train the denoiser.")
     parser.add_argument('--no_wandb', action='store_false', dest='wandb', help="If specified disables wandb logging")
-    parser.add_argument('--wandb_proj', type=str, default='ViTDiffusion')
+    parser.add_argument('--wandb_proj', type=str, default='ViTDiffusion_new')
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
     parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt')
@@ -157,7 +157,7 @@ def main():
                 if args.wandb: wandb.log({"val loss": val_loss_all/val_count})
 
                 # checkpoint
-                save_dir = f"./experiments/vitDiffusion/{args.exp_name}/checkpoints"
+                save_dir = f"./experiments/vitDiffusion_new/{args.exp_name}/checkpoints"
                 os.makedirs(save_dir, exist_ok=True)
                 save_checkpoint(model=denoise_model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
             
