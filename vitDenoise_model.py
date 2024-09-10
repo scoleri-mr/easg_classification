@@ -136,7 +136,7 @@ class DenoiseViT(nn.Module):
                 nn.Linear(d_model, d_model),
         )
 
-        self.ViT = SimpleViT(dim=d_model+time_dim, time_dim=time_dim, depth=depth, heads=heads, mlp_dim=hidden_dim)
+        self.ViT = SimpleViT(dim=d_model+time_dim, time_dim=time_dim, depth=depth, heads=heads, mlp_dim=2048)
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
  
