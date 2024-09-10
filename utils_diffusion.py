@@ -341,11 +341,16 @@ def get_denoised_videos(valloader, diff_path, timesteps, depth, heads, time_dim,
     denoise_model = load_vitDiffusion(diff_path, latent_dim, hidden_dim_diffusion, depth, heads, time_dim, device='cuda')
     denoise_model.to(device)
     denoise_model.eval()
+    all_samples = []
     with torch.no_grad():
+        count = 0
         for batch in valloader:
+            count += 1 
             batch = batch.to(device)
             pe = positional_encoding(latent_dim, window_size, batch.size(0))
             shape = (batch.size(0), window_size-num_fixed_frames, latent_dim)
             start_noise = torch.cat((batch[:,:num_fixed_frames,:], torch.randn(shape, device=device)), dim=1)
             samples = ViTsample(denoise_model, latent_dim, window_size, timesteps, pe, betas, batch_size, start_noise=start_noise, mode=mode)
-    return samples[-1]
+            all_samples.append(samples[-1].squeeze())
+            if count==3: break
+    return all_samples
