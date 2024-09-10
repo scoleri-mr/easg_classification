@@ -63,36 +63,48 @@ def main():
         # video_id : torch.Tensor of size [num_frames, latent_dim]
     
     encoded_videos_train = {}
+    train_triplets = {}
     for video in train_loader_v:
         for frame in video:
             frame.to(device)
             video_id = frame.video_id[0]    # only one video if batch_size=1  
             if video_id not in encoded_videos_train:
                 encoded_videos_train[video_id] = []
+                train_triplets[video_id] = []
             code = vae.encode(frame).squeeze()
             encoded_videos_train[video_id].append(code)
+            train_triplets[video_id].append(frame.triplets)
 
     for video_id in encoded_videos_train:
         encoded_videos_train[video_id] = torch.stack(encoded_videos_train[video_id])
+    
+    #save encoded videos and triplets from train dataset
+    torch.save(encoded_videos_train, f'easg_classification/dataset_video/encoded_videos_train_{args.latent_dim}.pth')
+    print("Training video dataset saved!")
+    torch.save(train_triplets, 'easg_classification/dataset_video/train_triplets.pth')
+    print("Training triplets saved!")
 
     encoded_videos_val = {}
+    val_triplets = {}
     for video in val_loader_v:
         for frame in video:
             frame.to(device)
             video_id = frame.video_id[0]    # only one video if batch_size=1  
             if video_id not in encoded_videos_val:
                 encoded_videos_val[video_id] = []
+                val_triplets[video_id] = []
             code = vae.encode(frame).squeeze()
             encoded_videos_val[video_id].append(code)
+            val_triplets[video_id].append(frame.triplets)
 
     for video_id in encoded_videos_val:
         encoded_videos_val[video_id] = torch.stack(encoded_videos_val[video_id])
 
-    # now save the new dictionaries as torch datasets
-    torch.save(encoded_videos_train, f'easg_classification/dataset_video/encoded_videos_train_{args.latent_dim}.pth')
-    print("Training video dataset saved!")
+    # #save encoded videos and triplets from validation dataset
     torch.save(encoded_videos_val, f'easg_classification/dataset_video/encoded_videos_validation_{args.latent_dim}.pth')
     print("Validation video dataset saved!")
+    torch.save(val_triplets, 'easg_classification/dataset_video/val_triplets.pth')
+    print("Validation triplets saved!")
 
 if __name__ == "__main__":
     main()

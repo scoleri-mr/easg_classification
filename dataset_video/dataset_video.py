@@ -10,10 +10,12 @@ from torch.utils.data import Dataset, DataLoader
 """
 def filter_short_videos(dataset_original, threshold):
     long_videos = []
+    video_ids = []
     for video_id, frames in dataset_original.items():
         if len(frames)>=threshold:
             long_videos.append(frames)
-    return long_videos
+            video_ids.append(video_id)
+    return long_videos, video_ids
 
 def random_window_selection(video, window_size):
     num_frames = video.size(0)
@@ -32,13 +34,15 @@ def get_subvideos(self, train_video_original):
     return final_videos
 
 class EASGvideo(Dataset):
-    def __init__(self, dataset_path, threshold=20, window_size=20, original=False):
+    def __init__(self, dataset_path, triplets_path, threshold=20, window_size=20, original=False, train_mode=True):
         self.window_size = window_size
         self.threshold = threshold
         self.original = original
+        self.train_mode = train_mode
 
         self.dataset_original = torch.load(dataset_path)
-        self.long_videos = filter_short_videos(self.dataset_original, self.threshold)
+        self.all_triplets = torch.load(triplets_path)
+        self.long_videos, self.long_video_ids = filter_short_videos(self.dataset_original, self.threshold)
 
         if self.window_size > self.threshold:
             raise Exception("window_size > threshold, may try to get more frames than available.")
@@ -47,7 +51,15 @@ class EASGvideo(Dataset):
         return len(self.long_videos)
 
     def __getitem__(self, idx):
-        return random_window_selection(self.long_videos[idx], self.window_size)
+        if self.train_mode:
+            return random_window_selection(self.long_videos[idx], self.window_size)
+        else:
+            return self.long_videos[idx][:self.window_size, :], self.get_triplets(idx)[:self.window_size]
+    
+    def get_triplets(self, idx): 
+        video_id = self.long_video_ids[idx]
+        triplets = self.all_triplets[video_id]
+        return triplets
     
 def main():
     dataset = EASGvideo("easg_classification/dataset_video/encoded_videos_train_256.pth", threshold=20, window_size=20, original=False)

@@ -56,6 +56,8 @@ def parse_args():
     parser.add_argument('--depth', type=int, help="Number of attention blocks for the ViT", default=5)
     parser.add_argument('--train_path', help="path for training dataset", default="./dataset_video/encoded_videos_train_256.pth")
     parser.add_argument('--val_path', help="path for validation dataset", default="./dataset_video/encoded_videos_validation_256.pth")
+    parser.add_argument('--train_triplets_path', help="path for training triplets", default="./dataset_video/train_triplets.pth")
+    parser.add_argument('--val_triplets_path', help="path for validation triplets", default="./dataset_video/val_triplets.pth")
     args = parser.parse_args()
     return args
 
@@ -64,8 +66,8 @@ def main():
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     # get train and validation datasets
-    train_dataset = EASGvideo(args.train_path, threshold=args.threshold, window_size=args.window_size)
-    validation_dataset = EASGvideo(args.val_path, threshold=args.threshold, window_size=args.window_size)
+    train_dataset = EASGvideo(args.train_path, args.train_triplets_path, threshold=args.threshold, window_size=args.window_size)
+    validation_dataset = EASGvideo(args.val_path, args.val_triplets_path, threshold=args.threshold, window_size=args.window_size)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
     val_loader = DataLoader(validation_dataset, batch_size=args.batch_size)
