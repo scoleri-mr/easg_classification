@@ -50,7 +50,7 @@ class EASGvideo(Dataset):
         return random_window_selection(self.long_videos[idx], self.window_size)
     
 def main():
-    dataset = EASGvideo("easg_classification/dataset_video/encoded_videos_train_256.pth", threshold=20, window_size=20, shift=10, original=False)
+    dataset = EASGvideo("easg_classification/dataset_video/encoded_videos_train_256.pth", threshold=20, window_size=20, original=False)
     dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
     
     # Print dataset size

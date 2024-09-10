@@ -1,6 +1,6 @@
 import torch
-from autoencoder import EASGvae
-from autoencoder import EASGAutoEncoder
+from easg_classification.autoencoder import EASGvae
+from easg_classification.autoencoder import EASGAutoEncoder
 
 def set_wandb_config(num_epochs, hidden_projection_dim, projection_dim,
                      hidden_dim, output_dim, batch_size, scheduler_type,
