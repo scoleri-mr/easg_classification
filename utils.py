@@ -145,6 +145,7 @@ def save_checkpoint(model, optimizer, epoch, path):
     print(f'Checkpoint saved to {path}')
 
 def triplets2words(triplets_lists, annts_path='annts_in_new_format/'):
+    # Load verbs, objects, and relationships from respective files
     with open(annts_path + 'verbs.txt') as f:
         verbs = [l.strip() for l in f.readlines()]
 
@@ -154,14 +155,17 @@ def triplets2words(triplets_lists, annts_path='annts_in_new_format/'):
     with open(annts_path + 'relationships.txt') as f:
         rels = [l.strip() for l in f.readlines()]
 
+    # Prepare the triplets in word format while preserving dimensions
     triplets_words = []
     for l in triplets_lists:
-        tr_word = []
+        tr_word = []  # List to hold the word triplets for each list element
         for tr in l:
             if len(tr) == 0:
-                tr_word.append([])
+                tr_word.append([])  # Preserve empty tensor structure
             else: 
-                for t in tr:       # I can have more than one tiplet for element
-                    tr_word.append([verbs[t[0]], objs[t[1]], rels[t[2]]])
-        triplets_words.append(tr_word)
+                word_triplets = []  # Hold multiple triplets for this element
+                for t in tr:  # For each triplet, convert it to words
+                    word_triplets.append([verbs[t[0]], objs[t[1]], rels[t[2]]])
+                tr_word.append(word_triplets)  # Append all triplets for the current element
+        triplets_words.append(tr_word)  # Append the processed list to the main list
     return triplets_words
