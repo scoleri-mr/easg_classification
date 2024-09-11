@@ -244,12 +244,18 @@ def tripletsGT2anticipationGT(video_triplets, evaluation_frame:int):
         original_words: ground truth triplets for the video
         evaluation_frame: frame we are evaluating for which we need the ground truth
     """
+    dobj = None
     for triplet in video_triplets[evaluation_frame]:
         verb = triplet[0]
         if triplet[2] == 'dobj':
             dobj = triplet[1]
-    if dobj==None:
-        print()
+
+    if dobj is None:
+        print("No direct object found. Adding object with rel 'in' or 'with'.")
+        for triplet in video_triplets[evaluation_frame]:
+            verb = triplet[0]
+            if triplet[2] == 'with' or triplet[2] == 'in':
+                dobj = triplet[1]
     return verb, dobj
 
 def topk_verb_predictions(verb_logits, top_k=5):
