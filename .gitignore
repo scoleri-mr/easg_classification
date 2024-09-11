@@ -37,3 +37,4 @@ models_outputs
 training_diffusion.sh
 recap_diffusion.txt
 recap_vae.txt
+denoised_videos/
