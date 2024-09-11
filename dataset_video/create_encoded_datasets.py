@@ -53,7 +53,10 @@ def main():
         vae_path = 'easg_classification/experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt'
     
     if args.vae_path is not None:
+        print("Extracting from custom vae path...")
         vae_path = args.vae_path
+        ind = vae_path.find('/checkpoints/last.ckpt')
+        run_id = vae_path[ind-4:ind]
 
     vae = load_model('vae', vae_path, separate=True, output_dim=args.latent_dim)
     vae.eval()
@@ -79,9 +82,9 @@ def main():
         encoded_videos_train[video_id] = torch.stack(encoded_videos_train[video_id])
     
     #save encoded videos and triplets from train dataset
-    torch.save(encoded_videos_train, f'easg_classification/dataset_video/encoded_videos_train_{args.latent_dim}.pth')
+    torch.save(encoded_videos_train, f'easg_classification/dataset_video/encoded_videos_train_{run_id}.pth')
     print("Training video dataset saved!")
-    torch.save(train_triplets, 'easg_classification/dataset_video/train_triplets.pth')
+    torch.save(train_triplets, f'easg_classification/dataset_video/train_triplets_{run_id}.pth')
     print("Training triplets saved!")
 
     encoded_videos_val = {}
@@ -100,10 +103,10 @@ def main():
     for video_id in encoded_videos_val:
         encoded_videos_val[video_id] = torch.stack(encoded_videos_val[video_id])
 
-    # #save encoded videos and triplets from validation dataset
-    torch.save(encoded_videos_val, f'easg_classification/dataset_video/encoded_videos_validation_{args.latent_dim}.pth')
+    # save encoded videos and triplets from validation dataset
+    torch.save(encoded_videos_val, f'easg_classification/dataset_video/encoded_videos_validation_{run_id}.pth')
     print("Validation video dataset saved!")
-    torch.save(val_triplets, 'easg_classification/dataset_video/val_triplets.pth')
+    torch.save(val_triplets, f'easg_classification/dataset_video/val_triplets_{run_id}.pth')
     print("Validation triplets saved!")
 
 if __name__ == "__main__":
