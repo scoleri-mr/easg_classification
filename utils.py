@@ -248,4 +248,6 @@ def tripletsGT2anticipationGT(video_triplets, evaluation_frame:int):
         verb = triplet[0]
         if triplet[2] == 'dobj':
             dobj = triplet[1]
+    if dobj==None:
+        print()
     return verb, dobj
