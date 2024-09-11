@@ -8,6 +8,10 @@ from torch.utils.data import Dataset, DataLoader
     contains the encoded versions of the frames obtained with a trained vae.
     The getitem returns a random window from the video at the given index
 """
+def set_seed(seed):
+    random.seed(seed)
+    torch.manual_seed(seed)
+
 def filter_short_videos(dataset_original, threshold):
     long_videos = []
     video_ids = []
@@ -74,6 +78,7 @@ class EASGvideo(Dataset):
 
     
 def main():
+    set_seed(42)
     dataset = EASGvideo("easg_classification/dataset_video/encoded_videos_train_256.pth", threshold=20, window_size=20, original=False)
     dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
     
