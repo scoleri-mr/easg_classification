@@ -102,7 +102,7 @@ def handle_verbs_out(verbs_output):
 #     return triplets_pred
 
 def get_pred_triplets(verbs_out, rels_out, device='cuda'):
-    ''' build only predicted triplets with fallback for empty predictions '''
+    ''' build predicted triplets with fallback for empty predictions '''
     triplets_pred = []
     
     for i in range(len(verbs_out)):
@@ -132,29 +132,29 @@ def get_pred_triplets(verbs_out, rels_out, device='cuda'):
     return triplets_pred
 
 
-# def to_triplets(verbs_gt, rels_gt, verbs_out, rels_out):
-#     ''' function to build the triplets from models output'''
-#     triplets_gt = []
-#     triplets_pred = []
-    
-#     for i in range(len(verbs_gt)):
-#         # BUILD THE GT TRIPLETS
-#         rel_gt = rels_gt[i].squeeze()
-#         obj_rels_gt = torch.nonzero(rel_gt[:,:13])
-
-#         verb = verbs_gt[i].repeat(len(obj_rels_gt),1)
-#         triplets_gt.append(torch.cat((verb,obj_rels_gt), dim=1))
-
-#         # BUILD THE PREDICTED TRIPLETS
-#         # apply softmax to the matrix to get the predicted objects and relationships
-#         rel_probs = torch.sigmoid(rels_out[i].squeeze())
-#         rel_binary = (rel_probs > 0.5).float()
-#         obj_rels_pred = torch.nonzero(rel_binary[:,:13])
-#         verb_pred = torch.argmax(verbs_out[i]).unsqueeze(0).unsqueeze(0).repeat(len(obj_rels_pred),1)
-#         triplets_pred.append(torch.cat((verb_pred,obj_rels_pred), dim=1))
-#     return triplets_gt, triplets_pred
-
 def to_triplets(verbs_gt, rels_gt, verbs_out, rels_out):
+    ''' function to build the triplets from models output'''
+    triplets_gt = []
+    triplets_pred = []
+    
+    for i in range(len(verbs_gt)):
+        # BUILD THE GT TRIPLETS
+        rel_gt = rels_gt[i].squeeze()
+        obj_rels_gt = torch.nonzero(rel_gt[:,:13])
+
+        verb = verbs_gt[i].repeat(len(obj_rels_gt),1)
+        triplets_gt.append(torch.cat((verb,obj_rels_gt), dim=1))
+
+        # BUILD THE PREDICTED TRIPLETS
+        # apply softmax to the matrix to get the predicted objects and relationships
+        rel_probs = torch.sigmoid(rels_out[i].squeeze())
+        rel_binary = (rel_probs > 0.5).float()
+        obj_rels_pred = torch.nonzero(rel_binary[:,:13])
+        verb_pred = torch.argmax(verbs_out[i]).unsqueeze(0).unsqueeze(0).repeat(len(obj_rels_pred),1)
+        triplets_pred.append(torch.cat((verb_pred,obj_rels_pred), dim=1))
+    return triplets_gt, triplets_pred
+
+def to_triplets_diffusion(verbs_gt, rels_gt, verbs_out, rels_out):
     ''' function to build the triplets from models output'''
     triplets_gt = []
     triplets_pred = []
@@ -237,3 +237,15 @@ def triplets2words(triplets_lists, annts_path='annts_in_new_format/'):
                 tr_word.append(word_triplets)  # Append all triplets for the current element
         triplets_words.append(tr_word)  # Append the processed list to the main list
     return triplets_words
+
+def tripletsGT2anticipationGT(video_triplets, evaluation_frame:int):
+    """ 
+        function to turn the gt triplets into the gt used for anticipation.
+        original_words: ground truth triplets for the video
+        evaluation_frame: frame we are evaluating for which we need the ground truth
+    """
+    for triplet in video_triplets[evaluation_frame]:
+        verb = triplet[0]
+        if triplet[2] == 'dobj':
+            dobj = triplet[1]
+    return verb, dobj
