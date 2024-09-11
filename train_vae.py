@@ -23,10 +23,6 @@ from torch.utils.data import Subset
 import pickle
 from utils import load_model
 
-""""
-example launcher: python train_ae.py --wandb --exp_name AE_verb_rel_withVal_epochs200 --num_epochs 200
-"""
-
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=64)
@@ -54,7 +50,7 @@ def parse_args():
     parser.add_argument('--check_overfitting', action='store_true', help="If specified takes a random subset of the training set to check overfitting capabilities of the model")
     parser.add_argument('--focal_loss', action='store_true', help="If specified use focal loss to balance verb classes")
     parser.add_argument('--exclude_verbs', action='store_true', help="If specified exclude verbs from training, use to focus on relationships")
-    parser.add_argument('--wandb_proj', type=str, default='vae_easg')
+    parser.add_argument('--wandb_proj', type=str, default='vae_easg_manual_weight')
     parser.add_argument('--separate', action='store_true', help='If specified separates the heads of verbs and relationships removing common mpl in the decoder')
     parser.add_argument('--from_ae', action='store_true', help='if specified start training from ae in base_path')
     parser.add_argument('--base_path', type=str, help='path of the starting pretrained model')
@@ -175,7 +171,7 @@ def weight_beta(num_epochs, beta):
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
-        opt.exp_name = f"VAE{opt.num_epochs}_sep={opt.separate}_fromae={opt.from_ae}_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_lr={opt.lr_start}_fl={opt.focal_loss}_ex={opt.exclude_verbs}_eps={opt.eps}_{str(int(time.time()))}"
+        opt.exp_name = f"VAE{opt.num_epochs}_manualWeight_sep={opt.separate}_fromae={opt.from_ae}_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_lr={opt.lr_start}_fl={opt.focal_loss}_ex={opt.exclude_verbs}_eps={opt.eps}_{str(int(time.time()))}"
     print(f"Training - exp name: {opt.exp_name}")        
         
     model = model.to(device)
@@ -247,7 +243,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 log_run_to_excel(opt, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels)
 
             # CHECKPOINT
-            save_dir = f"./experiments/{opt.exp_name}/checkpoints"
+            save_dir = f"./experiments/vae_manualWeights/{opt.exp_name}/checkpoints"
             os.makedirs(save_dir, exist_ok=True)
             save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 

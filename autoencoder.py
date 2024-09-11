@@ -264,7 +264,8 @@ class EASGvae(nn.Module):
     def __init__(   self, object_feats_dim, verb_feats_dim, 
                     num_rels, num_verbs, num_objs, 
                     hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-                    kld_type, dropout_prob=0.2, graph_type='gcn', use_focal_loss=False, eps=1., separate=True):
+                    kld_type, dropout_prob=0.2, graph_type='gcn', use_focal_loss=False, eps=1., separate=True,
+                    class_14_weight_factor=0.01):
         super(EASGvae, self).__init__()
         self.kld_type = kld_type
         self.encoder = EASGEncoder(object_feats_dim, verb_feats_dim, 
@@ -278,6 +279,7 @@ class EASGvae(nn.Module):
         self.use_focal_loss = use_focal_loss
         self.eps = eps
         self.separate = separate
+        self.class_14_weight_factor = class_14_weight_factor
 
         if self.separate:
             print("Using separate mlp for verb and rels, removing shared mlp...")
@@ -304,8 +306,19 @@ class EASGvae(nn.Module):
             # weights = torch.cat((torch.ones(13), torch.tensor([0.01])))
             # loss_rel = F.binary_cross_entropy_with_logits(weight=weights, input=relationship_logits, target=rels_gt)
         else:
-            loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
-            loss_rel = F.binary_cross_entropy_with_logits(input=relationship_logits, target=rels_gt)
+            # still use the focal loss for verbs
+            loss_verb = self.focal_loss_verb(verb_logits, verb_gt)
+            
+            # Binary cross-entropy with class weighting for relationships
+            # Here we assign a lower weight to class 14 (index 13) by using the `class_14_weight_factor`
+            weights = torch.ones(relationship_logits.size(1), device=relationship_logits.device)
+            weights[13] = self.class_14_weight_factor
+            
+            loss_rel = F.binary_cross_entropy_with_logits(
+                input=relationship_logits, 
+                target=rels_gt,
+                weight=weights
+            )
         if self.kld_type == 'original': # performs kld summing all together for the batch
             kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         elif self.kld_type == 'mean':   # performs separate kld for each sample and then average them
