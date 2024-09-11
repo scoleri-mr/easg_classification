@@ -354,9 +354,7 @@ def get_denoised_videos(valloader, diff_path, timesteps, depth, heads, time_dim,
             shape = (batch.size(0), window_size-num_fixed_frames, latent_dim)
             start_noise = torch.cat((batch[:,:num_fixed_frames,:], torch.randn(shape, device=device)), dim=1)
             samples = ViTsample(denoise_model, latent_dim, window_size, timesteps, pe, betas, batch_size, start_noise=start_noise, mode=mode)
-            all_samples.append(samples[-1].squeeze())
-            if count==3: break
-        
+            all_samples.append(samples[-1].squeeze())        
         for tr in all_triplets:
             out_list = []
             for t in tr:

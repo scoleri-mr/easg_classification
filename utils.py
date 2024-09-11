@@ -251,3 +251,103 @@ def tripletsGT2anticipationGT(video_triplets, evaluation_frame:int):
     if dobj==None:
         print()
     return verb, dobj
+
+def topk_verb_predictions(verb_logits, top_k=5):
+    """
+    Given the logits for verb predictions (PyTorch tensor), return the top_k verb predictions.
+    
+    Parameters:
+    - verb_logits: A torch tensor of size [198] (logits for each verb)
+    - top_k: The number of top verb predictions to return (default is 5)
+    
+    Returns:
+    - A torch tensor containing the indices of the top_k verb predictions
+    """
+    # Apply softmax to get probabilities
+    verb_probs = torch.softmax(verb_logits, dim=0)
+    
+    # Get indices of the top_k predictions
+    top_verb_probs, top_verb_indices = torch.topk(verb_probs, top_k)
+    
+    return [int(verb_index) for verb_index in top_verb_indices]
+
+def topk_objrels_predictions(obj_rel_matrix, top_k=5, relationship_index=1):
+    """
+    Given the object-relationship matrix (PyTorch tensor) and a specified relationship index,
+    return the top_k object predictions based on the logits in the specified column (relationship).
+    
+    Parameters:
+    - obj_rel_matrix: A torch tensor of size [391, 14] (logits for objects and relationships)
+    - top_k: The number of top object predictions to return (default is 5)
+    - relationship_index: The index of the relationship to consider (default is 1)
+    
+    Returns:
+    - A list of tuples (object_index, relationship_index) representing the top_k object predictions
+    """
+    # Extract the logits for the specified relationship column
+    rel_logits = obj_rel_matrix[:, relationship_index]
+    
+    # Get indices of the top_k predictions based on the logits in this column
+    top_obj_probs, top_object_indices = torch.topk(rel_logits, top_k)
+    
+    # Return the top_k object-relationship pairs
+    top_object_rel_predictions = [int(obj_idx) for obj_idx in top_object_indices]
+    
+    return top_object_rel_predictions
+
+def get_predictions_anticipation(decoded_videos, evaluation_frame, verbs, objs, topk=5):
+    """ 
+        Returns the predictions from the anticipation task as a list of list of tuples
+        [[(verb_pred_1, obj_pred_1), ..., (verb_pred_topk, obj_pred_topk)], ... ]
+        Each internal list represent the predictions for one subvideo
+    """
+    predictions = []
+    for video in decoded_videos:
+        v_pred = topk_verb_predictions(video[0][evaluation_frame], top_k=topk)
+        o_pred = topk_objrels_predictions(video[1][evaluation_frame], top_k=topk)
+        predictions.append([(verbs[verb_idx], objs[obj_idx]) for verb_idx, obj_idx in zip(v_pred, o_pred)])
+    return predictions
+
+def accuracy_anticipation(gt_actions, predicted_actions):
+    """
+    Calculates top-1 and top-5 accuracy for verb, noun, and action predictions.
+
+    :param gt_actions: List of ground truth tuples (verb, noun).
+    :param predicted_actions: List of lists of predicted tuples [(verb, noun), ...], up to 5 per GT.
+    :return: Dictionary with accuracies for verb, noun, and action.
+    """
+    verb_top1, noun_top1, action_top1 = 0, 0, 0
+    verb_top5, noun_top5, action_top5 = 0, 0, 0
+    assert len(gt_actions) == len(predicted_actions)
+    for gt, preds in zip(gt_actions, predicted_actions):
+        gt_verb, gt_noun = gt
+
+        # Check top-1 accuracy
+        pred_verb, pred_noun = preds[0]
+        if gt_verb == pred_verb:
+            verb_top1 += 1
+        if gt_noun == pred_noun:
+            noun_top1 += 1
+        if gt == preds[0]:
+            action_top1 += 1
+
+        # Check top-5 accuracy
+        verbs, nouns = zip(*preds[:5])
+        if gt_verb in verbs:
+            verb_top5 += 1
+        if gt_noun in nouns:
+            noun_top5 += 1
+        if gt in preds[:5]:
+            action_top5 += 1
+
+    total = len(gt_actions)
+    accuracies = {
+        'verb_top1': verb_top1*100 / total,
+        'noun_top1': noun_top1*100 / total,
+        'action_top1': action_top1*100 / total,
+        'verb_top5': verb_top5*100 / total,
+        'noun_top5': noun_top5*100 / total,
+        'action_top5': action_top5*100 / total
+    }
+
+    return accuracies
