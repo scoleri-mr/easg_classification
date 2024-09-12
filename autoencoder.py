@@ -280,12 +280,6 @@ class EASGvae(nn.Module):
         self.eps = eps
         self.separate = separate
         self.class_14_weight_factor = class_14_weight_factor
-        self.row_weights = torch.ones(num_objs)
-
-        # Set the weights for specific positions (21, 171, and 263) to 0.2
-        self.row_weights[21] = 0.2
-        self.row_weights[171] = 0.2
-        self.row_weights[263] = 0.2
 
         if self.separate:
             print("Using separate mlp for verb and rels, removing shared mlp...")
@@ -312,28 +306,18 @@ class EASGvae(nn.Module):
             # weights = torch.cat((torch.ones(13), torch.tensor([0.01])))
             # loss_rel = F.binary_cross_entropy_with_logits(weight=weights, input=relationship_logits, target=rels_gt)
         else:
-            # Cross-entropy for verbs
-            loss_verb = F.cross_entropy(input=verb_logits, target=verb_gt)
+            # still use the focal loss for verbs
+            loss_verb = self.focal_loss_verb(verb_logits, verb_gt)
             
             # Binary cross-entropy with class weighting for relationships
-            # Create the weight matrix for the relationships
-            class_weights = torch.ones(relationship_logits.size(1), device=relationship_logits.device)
-            class_weights[13] = self.class_14_weight_factor  # Apply the weight factor to class 14
+            # Here we assign a lower weight to class 14 (index 13) by using the `class_14_weight_factor`
+            weights = torch.ones(relationship_logits.size(1), device=relationship_logits.device)
+            weights[13] = self.class_14_weight_factor
             
-            # Reshape the relationship logits and ground truth to the original shape [bs, num_objs, 14]
-            bs, num_objs, num_rels = relationship_logits.size(0) // self.row_weights.size(0), self.row_weights.size(0), 14
-            relationship_logits = relationship_logits.view(bs, num_objs, num_rels)
-            rels_gt = rels_gt.view(bs, num_objs, num_rels)
-            
-            # Apply the row weights (for objects) and the class weights (for relationships)
-            # The row_weights should be of shape [num_objs, 1] to match the number of objects per batch
-            row_weights = self.row_weights.to(relationship_logits.device).view(1, num_objs, 1)
-            
-            # The loss is computed with both row and class weights
             loss_rel = F.binary_cross_entropy_with_logits(
                 input=relationship_logits, 
                 target=rels_gt,
-                weight=row_weights * class_weights  # Combine row-wise and class-wise weights
+                weight=weights
             )
         if self.kld_type == 'original': # performs kld summing all together for the batch
             kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
