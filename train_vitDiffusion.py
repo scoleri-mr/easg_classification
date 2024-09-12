@@ -43,7 +43,6 @@ def parse_args():
     parser.add_argument('--wandb_proj', type=str, default='ViTDiffusion_new')
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
-    parser.add_argument('--vae_path', type=str, help='path to the trained vae', default='experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt')
     parser.add_argument('--scheduler_type', type=str, help="Choose 'step' for StepLR and 'warmup' for CosineAnnealingWarmupRestarts. Use lr as parameter for max_lr in warmup.", default='warmup')
     parser.add_argument('--min_lr', type=float, help="Minimum learning rate for CosineAnnealingWarmupRestarts", default=0.00001)
     parser.add_argument('--loss_type', type=str, help="Choose between 'huber' and 'l2'", default='huber')
@@ -64,6 +63,10 @@ def parse_args():
 def main():
     args = parse_args()
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+    ind = args.train_path.find('.pth')
+    vae_run = args.train_path[ind-4:ind]
+    print(f"Reference vae run: {vae_run}")
 
     # get train and validation datasets
     train_dataset = EASGvideo(args.train_path, args.train_triplets_path, threshold=args.threshold, window_size=args.window_size)
@@ -112,7 +115,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion_t={args.timesteps}_mode={args.train_mode}_lr={args.lr}_heads={args.heads}_depth={args.depth}_window={args.window_size}_fixedfr={args.fixed_frames}_treshold={args.threshold}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion_{vae_run}_t={args.timesteps}_mode={args.train_mode}_lr={args.lr}_heads={args.heads}_depth={args.depth}_window={args.window_size}_fixedfr={args.fixed_frames}_treshold={args.threshold}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
