@@ -27,7 +27,7 @@ def set_wandb_config(num_epochs, hidden_projection_dim, projection_dim,
 
     return config
 
-def load_model(model_name, model_path, separate, output_dim=256, device='cuda'):
+def load_model(model_name, model_path, separate, output_dim=256, device='cuda', graph_type ='gcn', eval=True):
     import torch
     verb_dim = 2304
     obj_dim = 1024
@@ -37,7 +37,6 @@ def load_model(model_name, model_path, separate, output_dim=256, device='cuda'):
     num_rels=14
     num_verbs=198 
     num_objs=391
-    graph_type ='gcn'
     dropout_prob = 0.2
     use_focal_loss=True
 
@@ -51,6 +50,7 @@ def load_model(model_name, model_path, separate, output_dim=256, device='cuda'):
         model = model.to(device)
     else:
         print("wrong model name: choose 'vae' or 'ae'")
+        model.eval()
     return model
 
 def get_pred_and_gt(model_name, model, data_loader, device='cuda'):
