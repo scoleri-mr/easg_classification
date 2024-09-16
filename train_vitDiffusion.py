@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument('--hidden_dim_denoise', type=int, default=256)
     parser.add_argument('--no_train_denoiser', action='store_false', dest='train_denoiser', help="If specified, do not train the denoiser.")
     parser.add_argument('--no_wandb', action='store_false', dest='wandb', help="If specified disables wandb logging")
-    parser.add_argument('--wandb_proj', type=str, default='ViTDiffusion_new')
+    parser.add_argument('--wandb_proj', type=str, default='ViTDiffusion_t100')
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
     parser.add_argument('--scheduler_type', type=str, help="Choose 'step' for StepLR and 'warmup' for CosineAnnealingWarmupRestarts. Use lr as parameter for max_lr in warmup.", default='warmup')
@@ -115,7 +115,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion_{vae_run}_t={args.timesteps}_mode={args.train_mode}_lr={args.lr}_heads={args.heads}_depth={args.depth}_window={args.window_size}_fixedfr={args.fixed_frames}_treshold={args.threshold}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion{args.timesteps}_{vae_run}_t={args.timesteps}_mode={args.train_mode}_lr={args.lr}_heads={args.heads}_depth={args.depth}_window={args.window_size}_fixedfr={args.fixed_frames}_treshold={args.threshold}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)
@@ -160,7 +160,7 @@ def main():
                 if args.wandb: wandb.log({"val loss": val_loss_all/val_count})
 
                 # checkpoint
-                save_dir = f"./experiments/vitDiffusion_new/{args.exp_name}/checkpoints"
+                save_dir = f"./experiments/vitDiffusion_100/{args.exp_name}/checkpoints"
                 os.makedirs(save_dir, exist_ok=True)
                 save_checkpoint(model=denoise_model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
             

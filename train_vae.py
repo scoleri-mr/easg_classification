@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument('--check_overfitting', action='store_true', help="If specified takes a random subset of the training set to check overfitting capabilities of the model")
     parser.add_argument('--focal_loss', action='store_true', help="If specified use focal loss to balance verb classes")
     parser.add_argument('--exclude_verbs', action='store_true', help="If specified exclude verbs from training, use to focus on relationships")
-    parser.add_argument('--wandb_proj', type=str, default='vae_easg_sage_gat')
+    parser.add_argument('--wandb_proj', type=str, default='vae_final_runs')
     parser.add_argument('--separate', action='store_true', help='If specified separates the heads of verbs and relationships removing common mpl in the decoder')
     parser.add_argument('--from_ae', action='store_true', help='if specified start training from ae in base_path')
     parser.add_argument('--base_path', type=str, help='path of the starting pretrained model')
@@ -163,7 +163,7 @@ def plot_losses(loss_verb, loss_rels, kld, opt):
 
 def weight_beta(num_epochs, beta):
     if beta==1:
-        x = np.linspace(-6, 6, num_epochs)
+        x = np.linspace(-15, 6, num_epochs)
         weights = (1 / (1 + np.exp(-x)))*0.05
     else:
         weights = np.ones(num_epochs)
@@ -243,7 +243,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 log_run_to_excel(opt, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels)
 
             # CHECKPOINT
-            save_dir = f"./experiments/vae_manualWeights_sage_gat/{opt.exp_name}/checkpoints"
+            save_dir = f"./experiments/vae_final_runs/{opt.exp_name}/checkpoints"
             os.makedirs(save_dir, exist_ok=True)
             save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 
