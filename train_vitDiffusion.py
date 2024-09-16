@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--latent_dim', type=int, default=256)
     parser.add_argument('--spectral_emb_dim', type=int, default=10)
-    parser.add_argument('--epochs_denoise', type=int, default=2000)
+    parser.add_argument('--epochs_denoise', type=int, default=10000)
     parser.add_argument('--timesteps', type=int, default=1000)
     parser.add_argument('--hidden_dim_denoise', type=int, default=256)
     parser.add_argument('--no_train_denoiser', action='store_false', dest='train_denoiser', help="If specified, do not train the denoiser.")
@@ -115,7 +115,7 @@ def main():
     if args.train_denoiser:
         print('Training diffusion model...')
         if args.exp_name is None:
-            args.exp_name = f"diffusion{args.timesteps}_{vae_run}_t={args.timesteps}_mode={args.train_mode}_lr={args.lr}_heads={args.heads}_depth={args.depth}_window={args.window_size}_fixedfr={args.fixed_frames}_treshold={args.threshold}_{str(int(time.time()))}"
+            args.exp_name = f"diffusion_{vae_run}_t={args.timesteps}_mode={args.train_mode}_lr={args.lr}_heads={args.heads}_depth={args.depth}_window={args.window_size}_fixedfr={args.fixed_frames}_treshold={args.threshold}_{str(int(time.time()))}"
 
         if args.wandb:
             wandb.init(project=f'{args.wandb_proj}', config=args, name=args.exp_name)

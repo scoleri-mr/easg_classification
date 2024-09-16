@@ -47,16 +47,10 @@ def main():
     val_loader_v = DataLoader(val_video, batch_size=batch_size, shuffle=False)
 
     # load the variational autoencoder
-    if args.latent_dim == 512:
-        vae_path = 'easg_classification/experiments/best_VAE1000_sep=True_fromae=False_od=512_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1722873332/checkpoints/last.ckpt'
-    elif args.latent_dim == 256:
-        vae_path = 'easg_classification/experiments/best_VAE1000_sep=True_od=256_kld=original_b=0.0005_lr=0.0001_fl=True_ex=False_eps=0.1_1719244127/checkpoints/last.ckpt'
-    
-    if args.vae_path is not None:
-        print("Extracting from custom vae path...")
-        vae_path = args.vae_path
-        ind = vae_path.find('/checkpoints/last.ckpt')
-        run_id = vae_path[ind-4:ind]
+    print("Extracting from custom vae path...")
+    vae_path = args.vae_path
+    ind = vae_path.find('/checkpoints/last.ckpt')
+    run_id = vae_path[ind-4:ind]
 
     vae = load_model('vae', vae_path, separate=True, output_dim=args.latent_dim)
     vae.eval()
