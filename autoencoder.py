@@ -266,7 +266,7 @@ class EASGvae(nn.Module):
                     num_rels, num_verbs, num_objs, 
                     hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
                     kld_type, dropout_prob=0.2, graph_type='gcn', use_focal_loss=False, eps=1., separate=True,
-                    class_14_weight_factor=0.01):
+                    class_14_weight_factor=0.01, balance_losses=False):
         super(EASGvae, self).__init__()
         self.kld_type = kld_type
         self.encoder = EASGEncoder(object_feats_dim, verb_feats_dim, 
@@ -281,6 +281,12 @@ class EASGvae(nn.Module):
         self.eps = eps
         self.separate = separate
         self.class_14_weight_factor = class_14_weight_factor
+
+        if balance_losses:
+            print("Using balanced losses...")
+            self.sigma_verb = nn.Parameter(torch.tensor(1.0))
+            self.sigma_rel = nn.Parameter(torch.tensor(1.0))
+            self.sigma_kld = nn.Parameter(torch.tensor(1.0))
 
         if self.separate:
             print("Using separate mlp for verb and rels, removing shared mlp...")

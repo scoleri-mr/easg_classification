@@ -206,15 +206,10 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             optimizer.zero_grad()
             verb_logits, relationship_logits, mu, logvar = model(batch)
             if opt.balance_losses:
-                # Assume sigmas are learnable parameters for loss uncertainty
-                sigma_verb = torch.nn.Parameter(torch.tensor(1.0))
-                sigma_rel = torch.nn.Parameter(torch.tensor(1.0))
-                sigma_kld = torch.nn.Parameter(torch.tensor(1.0))
-
                 # Loss scaling based on uncertainty
-                loss_verb_weighted = loss_verb / (2 * sigma_verb**2) + torch.log(sigma_verb)
-                loss_rel_weighted = loss_rel / (2 * sigma_rel**2) + torch.log(sigma_rel)
-                loss_kld_weighted = opt.beta * kld * w[epoch] / (2 * sigma_kld**2) + torch.log(sigma_kld)
+                loss_verb_weighted = loss_verb / (2 * model.sigma_verb**2) + torch.log(model.sigma_verb)
+                loss_rel_weighted = loss_rel / (2 * model.sigma_rel**2) + torch.log(model.sigma_rel)
+                loss_kld_weighted = opt.beta * kld * w[epoch] / (2 * model.sigma_kld**2) + torch.log(model.sigma_kld)
 
                 # Final loss
                 total_loss = loss_verb_weighted + loss_rel_weighted + loss_kld_weighted
@@ -422,7 +417,8 @@ def main():
                     args.graph_type,
                     args.focal_loss,
                     args.eps,
-                    args.separate
+                    args.separate,
+                    args.balance_losses
                     )
     optimizer = Adam(model.parameters(), lr=args.lr_start)
 
