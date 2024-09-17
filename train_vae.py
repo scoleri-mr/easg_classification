@@ -54,6 +54,7 @@ def parse_args():
     parser.add_argument('--separate', action='store_true', help='If specified separates the heads of verbs and relationships removing common mpl in the decoder')
     parser.add_argument('--from_ae', action='store_true', help='if specified start training from ae in base_path')
     parser.add_argument('--base_path', type=str, help='path of the starting pretrained model')
+    parser.add_argument('--balance_losses', action='store_true', help="If specified balances losses dynamically")
     args = parser.parse_args()
     return args
 
@@ -204,24 +205,32 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
             optimizer.zero_grad()
             verb_logits, relationship_logits, mu, logvar = model(batch)
-            loss_verb, loss_rel, kld = model.loss_functions(verb_gt, rel_gt, verb_logits, relationship_logits, mu, logvar)
-            loss = loss_verb + loss_rel + opt.beta*kld*w[epoch]
-            if opt.exclude_verbs:
-                if count==0:
-                    count=1
-                    print('Excluding verbs from training...')                
-                loss = loss_rel + opt.beta*kld*w[epoch]
-            else:
-                loss = loss_verb + loss_rel + opt.beta*kld*w[epoch]
+            if opt.balance_losses:
+                # Assume sigmas are learnable parameters for loss uncertainty
+                sigma_verb = torch.nn.Parameter(torch.tensor(1.0))
+                sigma_rel = torch.nn.Parameter(torch.tensor(1.0))
+                sigma_kld = torch.nn.Parameter(torch.tensor(1.0))
+
+                # Loss scaling based on uncertainty
+                loss_verb_weighted = loss_verb / (2 * sigma_verb**2) + torch.log(sigma_verb)
+                loss_rel_weighted = loss_rel / (2 * sigma_rel**2) + torch.log(sigma_rel)
+                loss_kld_weighted = opt.beta * kld * w[epoch] / (2 * sigma_kld**2) + torch.log(sigma_kld)
+
+                # Final loss
+                total_loss = loss_verb_weighted + loss_rel_weighted + loss_kld_weighted
+            else: 
+                loss_verb, loss_rel, kld = model.loss_functions(verb_gt, rel_gt, verb_logits, relationship_logits, mu, logvar)
+                total_loss = loss_verb + loss_rel + opt.beta*kld*w[epoch]
+                
             history_verb.append(loss_verb.item())
             history_rels.append(loss_rel.item())
             history_kld.append(kld.item())
-            loss.backward()
+            total_loss.backward()
             optimizer.step()
             if bidx % 10 == 0:
                 current_lr = scheduler.get_last_lr()[0]
                 # print(f"Train epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}, kld: {kld.item()}")
-                if opt.wandb: wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "kdl":kld, "current_lr": current_lr})                 
+                if opt.wandb: wandb.log({"loss": total_loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "kdl":kld, "current_lr": current_lr})                 
         scheduler.step()
         
         if (epoch+1) % 10 == 0 or epoch == 0:
