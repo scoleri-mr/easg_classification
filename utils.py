@@ -58,22 +58,26 @@ def get_pred_and_gt(model_name, model, data_loader, device='cuda'):
     verbs_gt = []
     rels_output = []
     rels_gt = []
+    objs_output = []
+    objs_gt = []
     model.eval()
     with torch.no_grad():
         for data in data_loader:
-            batch, v_gt, rel_gt = data
+            batch, v_gt, o_gt, rel_gt = data
             batch = batch.to(device)
             verbs_gt.append(v_gt)
             rels_gt.append(rel_gt)
+            objs_gt.append(o_gt)
             if model_name=='vae':
-                v_out, rel_out, _, _ = model(batch)
+                v_out, o_out, rel_out, _, _ = model(batch)
             elif model_name=='ae':
                 v_out, rel_out = model(batch)
             else:
                 print("wrong model name: choose 'vae' or 'ae'")
             verbs_output.append(v_out)
             rels_output.append(rel_out)
-    return verbs_output, verbs_gt, rels_output, rels_gt
+            objs_output.append(o_out)
+    return verbs_output, verbs_gt, objs_output, objs_gt, rels_output, rels_gt
 
 def verb_accuracy(list1, list2):
     if len(list1) != len(list2):
@@ -152,6 +156,41 @@ def to_triplets(verbs_gt, rels_gt, verbs_out, rels_out):
         obj_rels_pred = torch.nonzero(rel_binary[:,:13])
         verb_pred = torch.argmax(verbs_out[i]).unsqueeze(0).unsqueeze(0).repeat(len(obj_rels_pred),1)
         triplets_pred.append(torch.cat((verb_pred,obj_rels_pred), dim=1))
+    return triplets_gt, triplets_pred
+
+def to_triplets2(verbs_gt, objs_gt, rels_gt, verbs_out, objs_out, rels_out):
+    ''' function to build the triplets from models output'''
+    triplets_gt = []
+    triplets_pred = []
+    
+    for i in range(len(verbs_gt)):
+        # BUILD THE GT TRIPLETS
+        rel_gt = rels_gt[i].squeeze()
+        obj_rels_gt = torch.nonzero(rel_gt[:,:13])
+
+        verb = verbs_gt[i].repeat(len(obj_rels_gt),1)
+        triplets_gt.append(torch.cat((verb,obj_rels_gt), dim=1))
+
+        # BUILD THE PREDICTED TRIPLETS
+        # Apply softmax to objs_out to get predicted objects
+        obj_probs = torch.softmax(objs_out[i].squeeze(), dim=-1)
+        obj_pred = (obj_probs > 0.2).float()  # Filter objects with probability > 0.5
+        obj_indices = torch.nonzero(obj_pred)  # Get indices of predicted objects
+
+        rels_pred = []
+        if len(obj_indices) == 0:
+            obj_indices = torch.argmax(objs_out[i]).unsqueeze(0).unsqueeze(0)
+        
+        # get predicted verb
+        verb_pred = torch.argmax(verbs_out[i]).unsqueeze(0).unsqueeze(0).repeat(len(obj_indices),1)
+            
+        for obj_index in obj_indices:
+            rels_out_temp = rels_out[i].squeeze()
+            rels_pred.append(torch.argmax(rels_out_temp[obj_index,:13]).unsqueeze(0))
+
+        objs_pred = obj_indices
+        rels_pred = torch.vstack(rels_pred)
+        triplets_pred.append(torch.cat((verb_pred, objs_pred, rels_pred), dim=1))
     return triplets_gt, triplets_pred
 
 def to_triplets_diffusion(verbs_gt, rels_gt, verbs_out, rels_out):
