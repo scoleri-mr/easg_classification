@@ -205,16 +205,14 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
             optimizer.zero_grad()
             verb_logits, relationship_logits, mu, logvar = model(batch)
+            loss_verb, loss_rel, kld = model.loss_functions(verb_gt, rel_gt, verb_logits, relationship_logits, mu, logvar)
             if opt.balance_losses:
                 # Loss scaling based on uncertainty
                 loss_verb_weighted = loss_verb / (2 * model.sigma_verb**2) + torch.log(model.sigma_verb)
                 loss_rel_weighted = loss_rel / (2 * model.sigma_rel**2) + torch.log(model.sigma_rel)
                 loss_kld_weighted = opt.beta * kld * w[epoch] / (2 * model.sigma_kld**2) + torch.log(model.sigma_kld)
-
-                # Final loss
                 total_loss = loss_verb_weighted + loss_rel_weighted + loss_kld_weighted
-            else: 
-                loss_verb, loss_rel, kld = model.loss_functions(verb_gt, rel_gt, verb_logits, relationship_logits, mu, logvar)
+            else:                 
                 total_loss = loss_verb + loss_rel + opt.beta*kld*w[epoch]
                 
             history_verb.append(loss_verb.item())
