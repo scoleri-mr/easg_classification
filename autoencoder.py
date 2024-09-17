@@ -154,6 +154,19 @@ class EASGDecoder(nn.Module):
                 nn.Linear(hidden_dim, num_verbs),
             )
 
+            # object classification head
+            self.object_head = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim*2),
+                nn.LayerNorm(hidden_dim*2),
+                nn.GELU(),
+                nn.Dropout(dropout_prob),
+                nn.Linear(hidden_dim*2, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, num_objs),
+            )
+
+            # relationship head
             self.rel_mlp = nn.Sequential(
                 nn.Linear(input_dim, hidden_dim*2),
                 nn.LayerNorm(hidden_dim*2),
@@ -218,7 +231,13 @@ class EASGDecoder(nn.Module):
         relationships_logits = self.rel_head(relationships) #  [bs, num_rel, num_objs]
         relationships_logits = relationships_logits.permute(0,2,1) #  [bs, num_objs, num_rel]
 
-        return verb_logits, relationships_logits
+        # object classification
+        if self.separate:
+            object_logits = self.object_head(codes)  # [bs, num_objects]
+        else:
+            object_logits = self.object_head(shared_repr)  # [bs, num_objects]
+
+        return verb_logits, object_logits, relationships_logits
 
 class EASGAutoEncoder(nn.Module): 
     def __init__(   self, object_feats_dim, verb_feats_dim, 
@@ -294,11 +313,12 @@ class EASGvae(nn.Module):
         logvar = self.fc_logvar(graphs_latents)
         graphs_latents = self.reparameterize(mu, logvar, self.eps)
         verb_logits, relationships_logits = self.decoder(graphs_latents)
-        return verb_logits, relationships_logits, mu, logvar
+        verb_logits, object_logits, relationships_logits = self.decoder(graphs_latents)
+        return verb_logits, object_logits, relationships_logits, mu, logvar
     
     #### the loss function in neural graph generator repeats parts of the forward, I removed those parts
     #### with respect to a traditional VAE instead of having an l1 type loss we use a CE and BCE that are summed to the kld
-    def loss_functions(self, verb_gt, rels_gt, verb_logits, relationship_logits, mu, logvar):
+    def loss_functions(self, verb_gt, objs_gt, rels_gt, verb_logits, objs_logits, relationship_logits, mu, logvar):
         relationship_logits = relationship_logits.contiguous().view(-1, 14) 
         rels_gt = rels_gt.view(-1, 14)
         if self.use_focal_loss:
@@ -320,11 +340,17 @@ class EASGvae(nn.Module):
                 target=rels_gt,
                 weight=weights
             )
+
+        loss_obj = F.binary_cross_entropy_with_logits(
+            input=objs_logits,
+            target=objs_gt  # binary vector of size [bs, num_objects]
+        )
+
         if self.kld_type == 'original': # performs kld summing all together for the batch
             kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         elif self.kld_type == 'mean':   # performs separate kld for each sample and then average them
             kld =  torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim = 1), dim = 0)
-        return loss_verb, loss_rel, kld
+        return loss_verb, loss_obj, loss_rel, kld
         
     def reparameterize(self, mu, logvar, eps_scale=1.):
         if self.training:
