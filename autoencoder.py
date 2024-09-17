@@ -312,7 +312,6 @@ class EASGvae(nn.Module):
         mu = self.fc_mu(graphs_latents)
         logvar = self.fc_logvar(graphs_latents)
         graphs_latents = self.reparameterize(mu, logvar, self.eps)
-        verb_logits, relationships_logits = self.decoder(graphs_latents)
         verb_logits, object_logits, relationships_logits = self.decoder(graphs_latents)
         return verb_logits, object_logits, relationships_logits, mu, logvar
     

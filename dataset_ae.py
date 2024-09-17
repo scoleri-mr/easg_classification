@@ -308,20 +308,24 @@ class EASGDatasetAE(Dataset):
             else:
                 assert False, "sth wrong happened!"
         """
-        # Create target tensors
+        # Create target tensors for relationshps
         gt_rels = torch.zeros((self.num_objs,self.num_rels+1))
         gt_rels[:,-1]=1
         for el in triplets:
             # el: (indice verbo,indice obj,indice rel)
             gt_rels[el[1],el[2]] = 1
             gt_rels[el[1],-1] = 0
+
+        # Create target tensor for objects
+        gt_objs = torch.zeros(391)
+        for el in obj_indices:
+            gt_objs[el] = 1
             
         # Create PyTorch Geometric Data object
         data = Data(x=x, edge_index=edge_index)
         data.stats = clip_features
         
-        # TODO: don't need to encapsulate the GTs in pytorch geometric structure, these have the same size for each elem. in batch!
-        return data, verb_idx, gt_rels
+        return data, verb_idx, gt_objs, gt_rels
 
 
 if __name__ == "__main__":

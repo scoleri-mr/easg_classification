@@ -49,8 +49,7 @@ def parse_args():
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--check_overfitting', action='store_true', help="If specified takes a random subset of the training set to check overfitting capabilities of the model")
     parser.add_argument('--focal_loss', action='store_true', help="If specified use focal loss to balance verb classes")
-    parser.add_argument('--exclude_verbs', action='store_true', help="If specified exclude verbs from training, use to focus on relationships")
-    parser.add_argument('--wandb_proj', type=str, default='vae_final_runs')
+    parser.add_argument('--wandb_proj', type=str, default='vae_objs_head')
     parser.add_argument('--separate', action='store_true', help='If specified separates the heads of verbs and relationships removing common mpl in the decoder')
     parser.add_argument('--from_ae', action='store_true', help='if specified start training from ae in base_path')
     parser.add_argument('--base_path', type=str, help='path of the starting pretrained model')
@@ -171,7 +170,7 @@ def weight_beta(num_epochs, beta):
 
 def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     if opt.exp_name is None:
-        opt.exp_name = f"VAE{opt.num_epochs}_manualWeight_{opt.graph_type}_sep={opt.separate}_fromae={opt.from_ae}_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_drop={opt.dropout_prob}_lr={opt.lr_start}_fl={opt.focal_loss}_ex={opt.exclude_verbs}_eps={opt.eps}_{str(int(time.time()))}"
+        opt.exp_name = f"VAE{opt.num_epochs}_objHead_{opt.graph_type}_sep={opt.separate}_fromae={opt.from_ae}_od={opt.output_dim}_kld={opt.kld_type}_b={opt.beta}_drop={opt.dropout_prob}_lr={opt.lr_start}_fl={opt.focal_loss}_eps={opt.eps}_{str(int(time.time()))}"
     print(f"Training - exp name: {opt.exp_name}")        
         
     model = model.to(device)
@@ -183,6 +182,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
         wandb.watch(model, log="all")        
 
     history_verb = []
+    history_objs = []
     history_rels = []
     history_kld = []
 
@@ -198,22 +198,17 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
     for epoch in range(opt.num_epochs):
         model.train()
         for bidx, _data in tqdm(enumerate(train_loader, 0), unit="batch", total=len(train_loader)):
-            batch, verb_gt, rel_gt = _data
+            batch, verb_gt, objs_gt, rel_gt = _data
             batch = batch.to(device)
-            verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
+            verb_gt = verb_gt.view(-1).to(device)  # [bs, 1]
             rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
+            objs_gt = objs_gt.to(device) # [bs, num_objs]
             optimizer.zero_grad()
-            verb_logits, relationship_logits, mu, logvar = model(batch)
-            loss_verb, loss_rel, kld = model.loss_functions(verb_gt, rel_gt, verb_logits, relationship_logits, mu, logvar)
-            loss = loss_verb + loss_rel + opt.beta*kld*w[epoch]
-            if opt.exclude_verbs:
-                if count==0:
-                    count=1
-                    print('Excluding verbs from training...')                
-                loss = loss_rel + opt.beta*kld*w[epoch]
-            else:
-                loss = loss_verb + loss_rel + opt.beta*kld*w[epoch]
+            verb_logits, objs_logits, relationship_logits, mu, logvar = model(batch)
+            loss_verb, loss_objs, loss_rel, kld = model.loss_functions(verb_gt, objs_gt, rel_gt, verb_logits, objs_logits, relationship_logits, mu, logvar)
+            loss = loss_verb + loss_objs + loss_rel + opt.beta*kld*w[epoch]
             history_verb.append(loss_verb.item())
+            history_objs.append(loss_objs.item())
             history_rels.append(loss_rel.item())
             history_kld.append(kld.item())
             loss.backward()
@@ -221,7 +216,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             if bidx % 10 == 0:
                 current_lr = scheduler.get_last_lr()[0]
                 # print(f"Train epoch {epoch}, it: {bidx}, loss: {loss.item():.4f}, loss_verb: {loss_verb.item():.4f}, loss_rel: {loss_rel.item():.4f}, kld: {kld.item()}")
-                if opt.wandb: wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "kdl":kld, "current_lr": current_lr})                 
+                if opt.wandb: wandb.log({"loss": loss, "loss_verb": loss_verb, "loss_rel": loss_rel, "loss_objs": loss_objs, "kdl":kld, "current_lr": current_lr})                 
         scheduler.step()
         
         if (epoch+1) % 10 == 0 or epoch == 0:
@@ -229,13 +224,14 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
             if opt.check_overfitting:
                 val_loader = train_loader
 
-            acc_verb, balacc_verb, acc_rel, balacc_rel, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device, k_list_verbs=[1,2,5,10,20])
-            acc_verb_t, balacc_verb_t, acc_rel_t, balacc_rel_t, topk_acc_verb_t, topk_acc_rels_t = evaluation(model, train_loader, device, k_list_verbs = [1,2,5,10,20])
-            local_logging(logger, acc_verb, balacc_verb, acc_verb_t, balacc_verb_t, topk_acc_verb, topk_acc_rels, topk_acc_verb_t, topk_acc_rels_t, epoch+1, [1,2,5,10])
+            acc_verb, balacc_verb, acc_objs, acc_rel, balacc_rel, topk_acc_verb, topk_acc_rels = evaluation(model, val_loader, device, k_list_verbs=[1,2,5,10,20])
+            acc_verb_t, balacc_verb_t, acc_objs_t, acc_rel_t, balacc_rel_t, topk_acc_verb_t, topk_acc_rels_t = evaluation(model, train_loader, device, k_list_verbs = [1,2,5,10,20])
+            local_logging(logger, acc_verb, acc_objs, balacc_verb, acc_verb_t, balacc_verb_t, topk_acc_verb, acc_objs_t, topk_acc_rels, topk_acc_verb_t, topk_acc_rels_t, epoch+1, [1,2,5,10])
 
             if opt.wandb: 
                 wandb.log({"epoch": epoch, "acc_verb_val": acc_verb, "balacc_verb_val": balacc_verb, "topk_acc_verb_val":topk_acc_verb, "topk_acc_rels_val":topk_acc_rels,
                         "acc_verb_train": acc_verb_t, "balacc_verb_train": balacc_verb_t, 
+                        "acc_obj_train": acc_objs_t, "acc_objs": acc_objs,
                         'acc_rels': acc_rel, 'balacc_rels': balacc_rel, 'acc_rels_train': acc_rel_t, 'balacc_rels_train': balacc_rel_t})
             
             # recap excel file
@@ -243,7 +239,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 log_run_to_excel(opt, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels)
 
             # CHECKPOINT
-            save_dir = f"./experiments/vae_final_runs/{opt.exp_name}/checkpoints"
+            save_dir = f"./experiments/vae_objs_head/{opt.exp_name}/checkpoints"
             os.makedirs(save_dir, exist_ok=True)
             save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 
@@ -295,32 +291,55 @@ def log_run_to_excel(opt, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels, f
     # Save DataFrame to Excel file
     df.to_excel(file_path, index=False)
 
-def local_logging(logger, acc_verb, balacc_verb, acc_verb_train, balacc_verb_train, topk_acc_verb, topk_acc_rels, topk_acc_verb_train, topk_acc_rels_train, epoch, list_k):
+# def local_logging(logger, acc_verb, acc_objs, balacc_verb, acc_verb_train, balacc_verb_train, topk_acc_verb, acc_objs_t, topk_acc_rels, topk_acc_verb_train, topk_acc_rels_train, epoch, list_k):
+#     logger.info(f"VALIDATION EPOCH {epoch}:")
+#     logger.info(f"acc_verb: {acc_verb}, balacc_verb: {balacc_verb}")
+#     logger.info(f"acc_verb_train: {acc_verb_train}, balacc_verb_train: {balacc_verb_train}")
+#     logger.info(f"topk verb accuracy {list_k}: {topk_acc_verb[list_k[0]].item():.4f}, {topk_acc_verb[list_k[1]].item():.4f}, {topk_acc_verb[list_k[2]].item():.4f}, {topk_acc_verb[list_k[3]].item():.4f}")
+#     logger.info(f"topk rels accuracy {list_k}: {topk_acc_rels[list_k[0]].item():.4f}, {topk_acc_rels[list_k[1]].item():.4f}, {topk_acc_rels[list_k[2]].item():.4f}, {topk_acc_rels[list_k[3]].item():.4f}")
+#     logger.info(f"topk verb accuracy train {list_k}: {topk_acc_verb_train[list_k[0]].item():.4f}, {topk_acc_verb_train[list_k[1]].item():.4f}, {topk_acc_verb_train[list_k[2]].item():.4f}, {topk_acc_verb_train[list_k[3]].item():.4f}")
+#     logger.info(f"topk rels accuracy train{list_k}: {topk_acc_rels_train[list_k[0]].item():.4f}, {topk_acc_rels_train[list_k[1]].item():.4f}, {topk_acc_rels_train[list_k[2]].item():.4f}, {topk_acc_rels_train[list_k[3]].item():.4f}")
+#     logger.info("\n")
+
+def local_logging(logger, acc_verb, acc_objs, balacc_verb, acc_verb_train, balacc_verb_train, 
+                  topk_acc_verb, acc_objs_t, topk_acc_rels, topk_acc_verb_train, 
+                  topk_acc_rels_train, epoch, list_k):
     logger.info(f"VALIDATION EPOCH {epoch}:")
-    logger.info(f"acc_verb: {acc_verb}, balacc_verb: {balacc_verb}")
-    logger.info(f"acc_verb_train: {acc_verb_train}, balacc_verb_train: {balacc_verb_train}")
+    # Verb Accuracies
+    logger.info(f"acc_verb: {acc_verb:.4f}, balacc_verb: {balacc_verb:.4f}")
+    logger.info(f"acc_verb_train: {acc_verb_train:.4f}, balacc_verb_train: {balacc_verb_train:.4f}")
     logger.info(f"topk verb accuracy {list_k}: {topk_acc_verb[list_k[0]].item():.4f}, {topk_acc_verb[list_k[1]].item():.4f}, {topk_acc_verb[list_k[2]].item():.4f}, {topk_acc_verb[list_k[3]].item():.4f}")
-    logger.info(f"topk rels accuracy {list_k}: {topk_acc_rels[list_k[0]].item():.4f}, {topk_acc_rels[list_k[1]].item():.4f}, {topk_acc_rels[list_k[2]].item():.4f}, {topk_acc_rels[list_k[3]].item():.4f}")
+    
+    # Object Accuracies
+    logger.info(f"acc_objs (validation): {acc_objs:.4f}")
+    logger.info(f"acc_objs (training): {acc_objs_t:.4f}")
+    
+    # Relationship Accuracies
+    logger.info(f"topk rels accuracy {list_k}: {topk_acc_rels[list_k[0]]:.4f}, {topk_acc_rels[list_k[1]]:.4f}, {topk_acc_rels[list_k[2]]:.4f}, {topk_acc_rels[list_k[3]]:.4f}")
     logger.info(f"topk verb accuracy train {list_k}: {topk_acc_verb_train[list_k[0]].item():.4f}, {topk_acc_verb_train[list_k[1]].item():.4f}, {topk_acc_verb_train[list_k[2]].item():.4f}, {topk_acc_verb_train[list_k[3]].item():.4f}")
-    logger.info(f"topk rels accuracy train{list_k}: {topk_acc_rels_train[list_k[0]].item():.4f}, {topk_acc_rels_train[list_k[1]].item():.4f}, {topk_acc_rels_train[list_k[2]].item():.4f}, {topk_acc_rels_train[list_k[3]].item():.4f}")
+    logger.info(f"topk rels accuracy train {list_k}: {topk_acc_rels_train[list_k[0]]:.4f}, {topk_acc_rels_train[list_k[1]]:.4f}, {topk_acc_rels_train[list_k[2]]:.4f}, {topk_acc_rels_train[list_k[3]]:.4f}")
     logger.info("\n")
 
 def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels = [1,2,5,10]):
     model = model.eval()
     list_logits_verb, list_gt_verb = [], []
+    list_logits_objs, list_gt_objs = [], []
     list_logits_rel, list_gt_rels = [], []
 
     for _data in val_loader:
-        batch, verb_gt, rel_gt = _data
+        batch, verb_gt, objs_gt, rel_gt = _data
         batch = batch.to(device)
         verb_gt = verb_gt.view(-1).to(device)  # [bs, ]
+        objs_gt = objs_gt.to(device) # [bs, num_objs]
         rel_gt = rel_gt.to(device)  # [bs, num_objs, num_rels+1]
-        out_verb, out_rel, _, _ = model(batch)
+        out_verb, out_objs, out_rel, _, _ = model(batch)
         out_rel = out_rel.contiguous().view(-1, rel_gt.size(1), 14)
         # store val batch results for computing global accuracy and balanced accuracy
         list_logits_verb.append(out_verb.cpu().detach())
+        list_logits_objs.append(out_objs.cpu().detach())
         list_logits_rel.append(out_rel.cpu().detach())
         list_gt_verb.append(verb_gt.cpu().detach())
+        list_gt_objs.append(objs_gt.cpu().detach())
         list_gt_rels.append(rel_gt.view(-1,14).argmax(-1).view(-1).cpu().detach())
 
     # VERB ACCURACIES
@@ -357,7 +376,17 @@ def evaluation(model, val_loader, device, k_list_verbs = [1,2,5,10], k_list_rels
     acc_rel= accuracy_score(y_true=list_gt_rels.cpu().numpy(), y_pred=list_pred_rels.cpu().numpy())
     balacc_rel = balanced_accuracy_score(y_true=list_gt_rels.cpu().numpy(), y_pred=list_pred_rels.cpu().numpy())
 
-    return acc_verb, balacc_verb, acc_rel, balacc_rel, topk_acc_verb, topk_acc_rels
+    # OBJECT ACCURACIES (Multi-label classification)
+    list_logits_objs = torch.cat(list_logits_objs, dim=0)  # [total_instances, num_objs]
+    list_gt_objs = torch.cat(list_gt_objs, dim=0)  # [total_instances, num_objs
+    # Apply sigmoid to get probabilities and then threshold at 0.5 for binary prediction
+    object_pred = (torch.sigmoid(list_logits_objs) >= 0.5).int()  # [total_instances, num_objs]
+    # Object classification metrics
+    acc_objs = accuracy_score(list_gt_objs.cpu().numpy(), object_pred.cpu().numpy())
+    # Balanced accuracy for multi-label: average balanced accuracy per class
+    # balacc_objs = balanced_accuracy_score(list_gt_objs.cpu().numpy(), object_pred.cpu().numpy())
+
+    return acc_verb, balacc_verb, acc_objs, acc_rel, balacc_rel, topk_acc_verb, topk_acc_rels
 
 def main():
     torch.manual_seed(42)
