@@ -281,8 +281,9 @@ class EASGvae(nn.Module):
         self.eps = eps
         self.separate = separate
         self.class_14_weight_factor = class_14_weight_factor
+        self.balance_losses = balance_losses
 
-        if balance_losses:
+        if self.balance_losses:
             print("Using balanced losses...")
             self.sigma_verb = nn.Parameter(torch.tensor(1.0))
             self.sigma_rel = nn.Parameter(torch.tensor(1.0))

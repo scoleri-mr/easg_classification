@@ -402,6 +402,7 @@ def main():
 
     cosine_annealing_param = args.num_epochs
 
+    print(f'HEREEEE: {args.balance_losses}')
     model = EASGvae(obj_dim,
                     verb_dim,
                     num_rels + 1,
