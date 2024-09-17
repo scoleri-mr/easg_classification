@@ -91,48 +91,31 @@ def handle_verbs_out(verbs_output):
     verbs_predictions = [torch.argmax(el).item() for el in verbs_output]
     return verbs_predictions
 
-# def get_pred_triplets(verbs_out, rels_out):
-#     ''' build only predicted triplets'''
-#     triplets_pred = []
-    
-#     for i in range(len(verbs_out)):
-#         # BUILD THE PREDICTED TRIPLETS
-#         # apply softmax to the matrix to get the predicted objects and relationships
-#         rel_probs = torch.sigmoid(rels_out[i].squeeze())
-#         rel_binary = (rel_probs > 0.5).float()
-#         obj_rels_pred = torch.nonzero(rel_binary[:,:13])
-#         verb_pred = torch.argmax(verbs_out[i]).unsqueeze(0).unsqueeze(0).repeat(len(obj_rels_pred),1)
-#         triplets_pred.append(torch.cat((verb_pred,obj_rels_pred), dim=1))
-#     return triplets_pred
-
-def get_pred_triplets(verbs_out, rels_out, device='cuda'):
+def get_pred_triplets(verbs_out, objs_out, rels_out, device='cuda'):
     ''' build predicted triplets with fallback for empty predictions '''
     triplets_pred = []
     
     for i in range(len(verbs_out)):
         # BUILD THE PREDICTED TRIPLETS
-        # Apply sigmoid to the matrix to get the predicted objects and relationships
-        rel_probs = torch.sigmoid(rels_out[i].squeeze())
-        rel_binary = (rel_probs > 0.5).float()
-        obj_rels_pred = torch.nonzero(rel_binary[:, :13])
+        # Apply softmax to objs_out to get predicted objects
+        obj_probs = torch.softmax(objs_out[i].squeeze(), dim=-1)
+        obj_pred = (obj_probs > 0.2).float()  # Filter objects with probability > 0.5
+        obj_indices = torch.nonzero(obj_pred)  # Get indices of predicted objects
 
-        if len(obj_rels_pred) > 0:
-            # If there are valid predictions based on the threshold
-            verb_pred = torch.argmax(verbs_out[i]).unsqueeze(0).unsqueeze(0).repeat(len(obj_rels_pred), 1)
-            triplets_pred.append(torch.cat((verb_pred, obj_rels_pred), dim=1))
-        else:
-            # If no valid predictions, fallback to the highest probability triplet
-            # Get the index of the highest probable relationship-object pair
-            max_rel_idx = torch.argmax(rel_probs[:, :13])
-            obj_idx, rel_idx = divmod(max_rel_idx.item(), 13)  # Get object and relationship indices
-            obj_rels_pred = torch.tensor([[obj_idx, rel_idx]]).to(device)  # Create the highest probable object pair
+        rels_pred = []
+        if len(obj_indices) == 0:
+            obj_indices = torch.argmax(objs_out[i]).unsqueeze(0).unsqueeze(0)
+        
+        # get predicted verb
+        verb_pred = torch.argmax(verbs_out[i]).unsqueeze(0).unsqueeze(0).repeat(len(obj_indices),1)
+            
+        for obj_index in obj_indices:
+            rels_out_temp = rels_out[i].squeeze()
+            rels_pred.append(torch.argmax(rels_out_temp[obj_index,:13]).unsqueeze(0))
 
-            # Find the highest probable verb
-            verb_pred = torch.argmax(verbs_out[i]).unsqueeze(0).unsqueeze(0).repeat(1, 1).to(device)
-
-            # Append the highest probable triplet
-            triplets_pred.append(torch.cat((verb_pred, obj_rels_pred), dim=1))
-    
+        objs_pred = obj_indices
+        rels_pred = torch.vstack(rels_pred)
+        triplets_pred.append(torch.cat((verb_pred, objs_pred, rels_pred), dim=1))
     return triplets_pred
 
 
