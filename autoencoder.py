@@ -265,7 +265,7 @@ class EASGvae(nn.Module):
     def __init__(   self, object_feats_dim, verb_feats_dim, 
                     num_rels, num_verbs, num_objs, 
                     hidden_projection_dim, projection_dim, hidden_dim, output_dim, 
-                    kld_type, dropout_prob=0.2, graph_type='gcn', use_focal_loss=False, eps=1., separate=True,
+                    kld_type, dropout_prob=0.2, graph_type='gcn', use_focal_loss=False, eps=1., separate=False,
                     class_14_weight_factor=0.01, balance_losses=False):
         super(EASGvae, self).__init__()
         self.kld_type = kld_type

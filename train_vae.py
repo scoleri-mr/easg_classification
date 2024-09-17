@@ -401,8 +401,6 @@ def main():
     verb_dim = 2304  # original verb dimension
 
     cosine_annealing_param = args.num_epochs
-
-    print(f'HEREEEE: {args.balance_losses}')
     model = EASGvae(obj_dim,
                     verb_dim,
                     num_rels + 1,
@@ -411,13 +409,13 @@ def main():
                     args.proj_dim,
                     args.hidden_dim,
                     args.output_dim,
-                    args.kld_type,
-                    args.dropout_prob,
-                    args.graph_type,
-                    args.focal_loss,
-                    args.eps,
-                    args.separate,
-                    args.balance_losses
+                    kld_type=args.kld_type,
+                    dropout_prob=args.dropout_prob,
+                    graph_type=args.graph_type,
+                    use_focal_loss=args.focal_loss,
+                    eps=args.eps,
+                    separate=args.separate,
+                    balance_losses= args.balance_losses
                     )
     optimizer = Adam(model.parameters(), lr=args.lr_start)
 
