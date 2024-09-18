@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument('--hidden_dim_denoise', type=int, default=256)
     parser.add_argument('--no_train_denoiser', action='store_false', dest='train_denoiser', help="If specified, do not train the denoiser.")
     parser.add_argument('--no_wandb', action='store_false', dest='wandb', help="If specified disables wandb logging")
-    parser.add_argument('--wandb_proj', type=str, default='ViTDiffusion_t100')
+    parser.add_argument('--wandb_proj', type=str, default='ViTDiffusion_new+')
     parser.add_argument('--evaluation', action='store_true', help='Evaluation mode')
     parser.add_argument('--diffusion_path', type=str, help='path to the trained diffusion model')
     parser.add_argument('--scheduler_type', type=str, help="Choose 'step' for StepLR and 'warmup' for CosineAnnealingWarmupRestarts. Use lr as parameter for max_lr in warmup.", default='warmup')
