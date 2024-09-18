@@ -61,6 +61,7 @@ def p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_
 
     x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, num_fixed_frames)
     out_pred = denoise_model(x_noisy, t, pe)  # if reconstruct=True out_pred will cointain the reconstructed x, otherwise the predicted noise
+    out_pred = condition_projection(out_pred, x_start, num_fixed_frames)
 
     if mode=='reconstruct':
         # Reconstuction loss: predict the denoised sample
