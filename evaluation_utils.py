@@ -210,3 +210,77 @@ def manhattan_distance(c1, c2):
     # Calculate Manhattan distance
     manhattan_distance = np.sum(np.abs(v1 - v2))
     return manhattan_distance
+
+def compare_statistics2(list1, list2, names_list, list1_name:str='train', list2_name:str='validation',  stat:str = 'verb', other=False, save=False):
+    ''' function used to compare train and validation statistics or train and samples from diffusion models/VAE''' 
+    import matplotlib.pyplot as plt
+    from collections import Counter
+    import pandas as pd
+    import numpy as np
+
+    # Create Counters for both lists
+    c1 = Counter(list1)
+    c2 = Counter(list2)
+
+    # Extract the top 10 elements from each list
+    top10_1 = c1.most_common(10)
+    top10_2 = c2.most_common(10)
+
+    if other:
+        # Calculate the sum of all other
+        other_count_1 = sum(c1.values()) - sum(count for _,count in top10_1)
+        other_count_2 = sum(c2.values()) - sum(count for _,count in top10_2)
+
+        top10_1.append(('Other', other_count_1))
+        top10_2.append(('Other', other_count_2))
+
+    # Create a set of unique elements from both top 10 lists
+    unique_elements = set([el[0] for el in top10_1] + [el[0] for el in top10_2])
+
+    # Get the total counts for calculating percentages
+    total_count_1 = sum(c1.values())
+    total_count_2 = sum(c2.values())
+
+    # Create a dictionary to hold the percentage data for each element
+    data1 = {el: c1[el] / total_count_1 * 100 for el in unique_elements}
+    data2 = {el: c2[el] / total_count_2 * 100 for el in unique_elements}
+
+    # Prepare the data for plotting
+    names = [names_list[el] if el != 'Other' else 'Other' for el in unique_elements]
+    percentages1 = [data1[el] for el in unique_elements]
+    percentages2 = [data2[el] for el in unique_elements]
+
+    # Sort the names and percentages by the first dataset (optional)
+    sorted_indices = np.argsort(percentages1)[::-1]
+    names = np.array(names)[sorted_indices]
+    percentages1 = np.array(percentages1)[sorted_indices]
+    percentages2 = np.array(percentages2)[sorted_indices]
+
+    # Plot the data in a single bar chart with two bars per category
+    fig, ax = plt.subplots(figsize=(8, 6))
+    width = 0.35  # the width of the bars
+
+    # Create the positions for the bars
+    indices = np.arange(len(names))
+
+    # Plotting both sets of data side by side
+    ax.bar(indices - width/2, percentages1, width, label=list1_name, color='cornflowerblue')
+    ax.bar(indices + width/2, percentages2, width, label=list2_name, color='rosybrown')
+
+    # Add some labels and titles
+    ax.set_xlabel(f'{stat}')
+    ax.set_ylabel('Percentage')
+    ax.set_title(f'Comparison of Top 10 {stat} Frequencies')
+    ax.set_xticks(indices)
+    ax.set_xticklabels(names, rotation=45, ha='right')
+
+    # Add a legend
+    ax.legend()
+
+    # Adjust layout and show plot
+    plt.tight_layout()
+
+    if save: plt.savefig(f'perc_{stat}_{other}.jpg', format='jpg', dpi=500)
+    plt.show()
+
+    return c1, c2
