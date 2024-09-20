@@ -54,39 +54,72 @@ def q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noi
     x_noisy = condition_projection(x_noisy, x_start, num_fixed_frames)  # Apply condition projection
     return x_noisy
 
-# Loss function for denoising
 def p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, loss_type="l1", mode='noise', num_fixed_frames=5, device="cuda"):
     if noise is None:
         noise = torch.randn(x_start.size(0), x_start.size(1), x_start.size(2)).to(device)
 
     x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, num_fixed_frames)
-    out_pred = denoise_model(x_noisy, t, pe)  # if reconstruct=True out_pred will cointain the reconstructed x, otherwise the predicted noise
-    out_pred = condition_projection(out_pred, x_start, num_fixed_frames)
+    out_pred = denoise_model(x_noisy, t, pe)
+    out_pred = condition_projection(out_pred, x_start, num_fixed_frames) # Apply condition projection after prediction
 
-    if mode=='reconstruct':
-        # Reconstuction loss: predict the denoised sample
+    # Compute loss but exclude fixed frames from the calculation
+    if mode == 'reconstruct':
+        # Reconstruction loss: predict the denoised sample
         if loss_type == 'l1':
-            loss = F.l1_loss(x_start, out_pred)
+            loss = F.l1_loss(x_start[:, num_fixed_frames:], out_pred[:, num_fixed_frames:])
         elif loss_type == 'l2':
-            loss = F.mse_loss(x_start, out_pred)
+            loss = F.mse_loss(x_start[:, num_fixed_frames:], out_pred[:, num_fixed_frames:])
         elif loss_type == "huber":
-            loss = F.smooth_l1_loss(x_start, out_pred)
+            loss = F.smooth_l1_loss(x_start[:, num_fixed_frames:], out_pred[:, num_fixed_frames:])
         else:
             raise NotImplementedError()
-    elif mode=='noise':
+    elif mode == 'noise':
         # Noise prediction loss: predict the noise
         if loss_type == 'l1':
-            loss = F.l1_loss(noise, out_pred)
+            loss = F.l1_loss(noise[:, num_fixed_frames:], out_pred[:, num_fixed_frames:])
         elif loss_type == 'l2':
-            loss = F.mse_loss(noise, out_pred)
+            loss = F.mse_loss(noise[:, num_fixed_frames:], out_pred[:, num_fixed_frames:])
         elif loss_type == "huber":
-            loss = F.smooth_l1_loss(noise, out_pred)
+            loss = F.smooth_l1_loss(noise[:, num_fixed_frames:], out_pred[:, num_fixed_frames:])
         else:
             raise NotImplementedError()
     else:
         raise ValueError(f"Unknown mode {mode}")
-
     return loss
+
+# Loss function for denoising
+# def p_losses(denoise_model, x_start, t, pe, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, noise=None, loss_type="l1", mode='noise', num_fixed_frames=5, device="cuda"):
+#     if noise is None:
+#         noise = torch.randn(x_start.size(0), x_start.size(1), x_start.size(2)).to(device)
+
+#     x_noisy = q_sample(x_start, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod, num_fixed_frames)
+#     out_pred = denoise_model(x_noisy, t, pe)  # if reconstruct=True out_pred will cointain the reconstructed x, otherwise the predicted noise
+#     out_pred = condition_projection(out_pred, x_start, num_fixed_frames)
+
+#     if mode=='reconstruct':
+#         # Reconstuction loss: predict the denoised sample
+#         if loss_type == 'l1':
+#             loss = F.l1_loss(x_start, out_pred)
+#         elif loss_type == 'l2':
+#             loss = F.mse_loss(x_start, out_pred)
+#         elif loss_type == "huber":
+#             loss = F.smooth_l1_loss(x_start, out_pred)
+#         else:
+#             raise NotImplementedError()
+#     elif mode=='noise':
+#         # Noise prediction loss: predict the noise
+#         if loss_type == 'l1':
+#             loss = F.l1_loss(noise, out_pred)
+#         elif loss_type == 'l2':
+#             loss = F.mse_loss(noise, out_pred)
+#         elif loss_type == "huber":
+#             loss = F.smooth_l1_loss(noise, out_pred)
+#         else:
+#             raise NotImplementedError()
+#     else:
+#         raise ValueError(f"Unknown mode {mode}")
+
+#     return loss
 
 # Position embeddings
 class SinusoidalPositionEmbeddings(nn.Module):
