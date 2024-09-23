@@ -309,7 +309,7 @@ def evaluate_diffusion(test_loader, diff_path, vae_path, cond, timesteps, norm_t
             batch = batch.to(device)
             x_g = vae.encode(batch)
             t = torch.randint(0, timesteps, (x_g.size(0),), device=device).long()
-            x_noisy = q_sample(x_g, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod)
+            x_noisy = q_ViTsample(x_g, t, sqrt_alphas_cumprod, sqrt_one_minus_alphas_cumprod)
             if cond:
                 conditioning = data.stats
             else: conditioning = None

@@ -187,7 +187,9 @@ class DenoiseViT(nn.Module):
 def p_sample(model, x, t, pe, t_index, betas, mode, num_fixed_frames=5):
     if mode=='reconstruct':
         # Direct reconstruction
-        return model(x,t)
+        x_final = model(x,t)
+        x_final = condition_projection(x_final, x, num_fixed_frames)
+        return x_final
     
     else: 
         # define alphas
@@ -240,6 +242,7 @@ def p_sample_loop(model, timesteps, pe, betas, shape, start_noise, mode, num_fix
 
     for i in reversed(range(0, timesteps)):
         img = p_sample(model, img, torch.full((b,), i, device=device, dtype=torch.long), pe, i, betas, mode, num_fixed_frames)
+        img = condition_projection(img, start_noise)
         imgs.append(img)
     return imgs
 
