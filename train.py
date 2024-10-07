@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     parser.add_argument('--wandb', dest='wandb', action='store_true')
     parser.add_argument('--no-wandb', dest='wandb', action='store_false')
-    parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat, gin')
+    parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat')
     parser.set_defaults(wandb=True) 
     args = parser.parse_args()
     return args
@@ -58,9 +58,10 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
           proj_dim, hidden_dim, output_dim, 
           wandb_log, edge_criterion, graph_type, lr_start):
     
+    exp_name = f'EASGcls_{graph_type}_{proj_dim}_{hidden_dim}_{output_dim}_{lr_start}'
     model = model.to(device)
     if wandb_log: 
-        wandb.init(project = f'easg_classification_{graph_type}', config = config)
+        wandb.init(project = f'easg_classification_{graph_type}', config = config, name=exp_name)
         wandb.watch(model, log="all")
     
     loss_l1 = []
