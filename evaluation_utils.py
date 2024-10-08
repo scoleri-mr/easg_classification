@@ -82,7 +82,8 @@ def get_num_nodes(triplets1, triplets2, pred_name='Diffusion'):
     plt.ylabel('Frequency')
     plt.show()
     
-def compare_statistics(list1, list2, names_list, list1_name:str='train', list2_name:str='validation',  stat:str = 'verb', other=False, save=False):
+def compare_statistics(list1, list2, list3, names_list, list1_name:str='train', list2_name:str='validation', list3_name:str='vae', stat:str = 'verb', other=False, save=False):
+
     ''' function used to compare train and validation statistics or train and samples from diffusion models/VAE''' 
     import matplotlib.pyplot as plt
     from collections import Counter
@@ -114,8 +115,21 @@ def compare_statistics(list1, list2, names_list, list1_name:str='train', list2_n
     names2 = [names_list[el[0]] if el[0] != 'Other' else 'Other' for el in top10_2]
     percentages2 = [el[1] / total_count_2 * 100 for el in top10_2]
 
+    c3 = Counter(list3)
+    top10_3 = c3.most_common(10)
+
+    if other:
+        other_count_3 = sum(c3.values()) - sum(count for _,count in top10_3)
+        top10_3.append(('Other', other_count_3))
+
+    total_count_3 = sum(c3.values())
+
+    names3 = [names_list[el[0]] if el[0] != 'Other' else 'Other' for el in top10_3]
+    percentages3 = [el[1] / total_count_3 * 100 for el in top10_3]
+
     # Plot the bar charts separately
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
+
 
     hist1 = ax1.bar(names1, percentages1, color='cornflowerblue')
     ax1.set_title(f'Top 10 {stat} frequencies in {list1_name}')
@@ -127,6 +141,12 @@ def compare_statistics(list1, list2, names_list, list1_name:str='train', list2_n
     ax1.set_xlabel(f'{stat}')
     ax2.set_ylabel('Percentage')
 
+    hist3 = ax3.bar(names3, percentages3, color='lightgreen')
+    ax3.set_title(f'Top 10 {stat} frequencies in {list3_name}')
+    ax3.set_xlabel(f'{stat}')
+    ax3.set_ylabel('Percentage')
+    plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
     # Rotate x-axis labels for better readability
     plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
     plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
@@ -137,6 +157,90 @@ def compare_statistics(list1, list2, names_list, list1_name:str='train', list2_n
     if save: plt.savefig(f'perc_{stat}_{other}.jpg', format='jpg', dpi=500)
     plt.show()
     return c1, c2
+
+def compare_statistics_v2(list1, list2, list3, names_list, list1_name:str='train', list2_name:str='validation', list3_name:str='vae', stat:str = 'verb', other=False, save=False):
+
+    ''' function used to compare train and validation statistics or train and samples from diffusion models/VAE''' 
+    import matplotlib.pyplot as plt
+    from collections import Counter
+    import pandas as pd
+
+    # Create Counters for both lists
+    c1 = Counter(list1)
+    c2 = Counter(list2)
+
+    # Extract the top 10 elements from each list
+    top10_1 = c1.most_common(10)
+    top10_2 = c2.most_common(10)
+
+    if other:
+        # Calculate the sum of all other
+        other_count_1 = sum(c1.values()) - sum(count for _,count in top10_1)
+        other_count_2 = sum(c2.values()) - sum(count for _,count in top10_2)
+
+        top10_1.append(('Other', other_count_1))
+        top10_2.append(('Other', other_count_2))
+
+    # Get the total counts for calculating percentages
+    total_count_1 = sum(c1.values())
+    total_count_2 = sum(c2.values())
+
+    # Get the elements names and their percentages
+    names1 = [names_list[el[0]] if el[0] != 'Other' else 'Other' for el in top10_1]
+    percentages1 = [el[1] / total_count_1 * 100 for el in top10_1]
+    names2 = [names_list[el[0]] if el[0] != 'Other' else 'Other' for el in top10_2]
+    percentages2 = [el[1] / total_count_2 * 100 for el in top10_2]
+
+    c3 = Counter(list3)
+    top10_3 = c3.most_common(10)
+
+    if other:
+        other_count_3 = sum(c3.values()) - sum(count for _,count in top10_3)
+        top10_3.append(('Other', other_count_3))
+
+    total_count_3 = sum(c3.values())
+
+    names3 = [names_list[el[0]] if el[0] != 'Other' else 'Other' for el in top10_3]
+    percentages3 = [el[1] / total_count_3 * 100 for el in top10_3]
+
+    max_height = max(max(percentages1), max(percentages2), max(percentages3))
+
+
+    # Plot the bar charts separately
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 5))
+
+
+    hist1 = ax1.bar(names1, percentages1, color='cornflowerblue')
+    ax1.set_title(f'Top 10 {stat} frequencies in {list1_name}')
+    # ax1.set_xlabel(f'{stat}')
+    ax1.set_ylabel('Percentage')
+
+    hist2 = ax2.bar(names2, percentages2, color='rosybrown')
+    ax2.set_title(f'Top 10 {stat} frequencies in {list2_name}')
+    # ax1.set_xlabel(f'{stat}')
+    # ax2.set_ylabel('Percentage')
+
+    hist3 = ax3.bar(names3, percentages3, color='teal')
+    ax3.set_title(f'Top 10 {stat} frequencies in {list3_name}')
+    # ax3.set_xlabel(f'{stat}')
+    # ax3.set_ylabel('Percentage')
+    
+    ax1.set_ylim(0, max_height+3)
+    ax2.set_ylim(0, max_height+3)
+    ax3.set_ylim(0, max_height+3)
+
+
+    # Rotate x-axis labels for better readability
+    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    # Adjust layout and show plot
+    plt.tight_layout()
+
+    if save: plt.savefig(f'perc_{stat}_{other}.jpg', format='jpg', dpi=500)
+    plt.show()
+    return
 
 def top10_distances(c1, c2):
     '''Function to compute distances for top 10 elements in each counter'''
