@@ -60,7 +60,7 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
     
     exp_name = f'EASGcls_{graph_type}_{proj_dim}_{hidden_dim}_{output_dim}_{lr_start}'
     model = model.to(device)
-    if wandb_log: 
+    if wandb_log:  
         wandb.init(project = f'easg_classification_{graph_type}', config = config, name=exp_name)
         wandb.watch(model, log="all")
     

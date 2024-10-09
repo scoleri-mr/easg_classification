@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument('--beta', type=float, default=0.0005, help='beta weighting kld of vae. beta=1 triggers weighted beta')
     parser.add_argument('--kld_type', type=str, default='original', help='type of kld. Choose between original, mean, commonScenes')
     parser.add_argument('--hidden_proj_dim', type=int, default=1024, help='hidden dimension for linear projection')
-    parser.add_argument('--proj_dim', type=int, default=512, help='final dimension of verb and objects after linear projection')
+    parser.add_argument('--proj_dim', type=int, default=1024, help='final dimension of verb and objects after linear projection')
     parser.add_argument('--hidden_dim', type=int, default=512, help='hidden dimension for the gnn')
     parser.add_argument('--output_dim', type=int, default=256, help='output dimension of the gnn')
     parser.add_argument('--scheduler_type', type=str, default='cosine_annealing', help='choose between step, cosine_annealing and fixed')
@@ -43,14 +43,14 @@ def parse_args():
     parser.add_argument('--eps', type=float, default= 1., help='set the epsilon for the vae reparametrize')
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     parser.add_argument('--wandb', action='store_true', help="If specified enables wandb logging")
-    parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat, gin')
+    parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat')
     parser.add_argument('--exp_name', type=str, default=None, help='experiment name')
     parser.add_argument('--resume', type=str, default=None, help='checkpoint to resume')
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--check_overfitting', action='store_true', help="If specified takes a random subset of the training set to check overfitting capabilities of the model")
     parser.add_argument('--focal_loss', action='store_true', help="If specified use focal loss to balance verb classes")
     parser.add_argument('--exclude_verbs', action='store_true', help="If specified exclude verbs from training, use to focus on relationships")
-    parser.add_argument('--wandb_proj', type=str, default='vae_balanced_losses')
+    parser.add_argument('--wandb_proj', type=str, default='vae_final')
     parser.add_argument('--separate', action='store_true', help='If specified separates the heads of verbs and relationships removing common mpl in the decoder')
     parser.add_argument('--from_ae', action='store_true', help='if specified start training from ae in base_path')
     parser.add_argument('--base_path', type=str, help='path of the starting pretrained model')
@@ -245,7 +245,7 @@ def train(train_loader, val_loader, model, optimizer, scheduler, device, opt):
                 log_run_to_excel(opt, acc_verb, balacc_verb, topk_acc_verb, topk_acc_rels)
 
             # CHECKPOINT
-            save_dir = f"./experiments/vae_balanced_losses/{opt.exp_name}/checkpoints"
+            save_dir = f"./experiments/vae_final/{opt.exp_name}/checkpoints"
             os.makedirs(save_dir, exist_ok=True)
             save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, path=osp.join(save_dir, "last.ckpt"))
 

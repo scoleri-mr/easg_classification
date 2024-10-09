@@ -101,6 +101,26 @@ def handle_verbs_out(verbs_output):
 #         triplets_pred.append(torch.cat((verb_pred,obj_rels_pred), dim=1))
 #     return triplets_pred
 
+def topk_verb_accuracy(true_labels, preds_tensors, k):
+    if len(true_labels) != len(preds_tensors):
+        print("error")
+        return 0.0
+    
+    # Extract top-k predictions for all tensors in one go
+    topk_preds = [torch.topk(tensor, k).indices.tolist() for tensor in preds_tensors]    
+    matches = 0
+    
+    # Loop over each true label and its corresponding top-k predictions
+    for true_label, top_k in zip(true_labels, topk_preds):
+        # Check if the true label is in the top-k predictions
+        if true_label.squeeze() in top_k[0]:
+            matches += 1
+
+    # Calculate the accuracy
+    accuracy = matches / len(true_labels)
+    return accuracy * 100
+
+
 def get_pred_triplets(verbs_out, rels_out, device='cuda'):
     ''' build predicted triplets with fallback for empty predictions '''
     triplets_pred = []
