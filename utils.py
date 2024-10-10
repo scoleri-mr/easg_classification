@@ -32,7 +32,7 @@ def load_model(model_name, model_path, separate, output_dim=256, device='cuda', 
     verb_dim = 2304
     obj_dim = 1024
     hidden_projection_dim = 1024
-    projection_dim = 512
+    projection_dim = 1024
     hidden_dim = 512
     num_rels=14
     num_verbs=198 
@@ -148,6 +148,33 @@ def get_pred_triplets(verbs_out, rels_out, device='cuda'):
 
             # Append the highest probable triplet
             triplets_pred.append(torch.cat((verb_pred, obj_rels_pred), dim=1))
+    
+    return triplets_pred
+
+def get_pred_triplets_topk(verbs_out, rels_out, topk=5, device='cuda'):
+    ''' build predicted top-k triplets '''
+    triplets_pred = []
+    
+    for i in range(len(verbs_out)):
+        # BUILD THE PREDICTED TRIPLETS
+        # Apply sigmoid to the matrix to get the predicted objects and relationships
+        rel_probs = torch.sigmoid(rels_out[i].squeeze())
+        
+        # Flatten the relationship-object pairs and get the top-k indices
+        rel_probs_flat = rel_probs[:, :13].flatten()  # Consider only the first 13 relationships
+        topk_rel_indices = torch.topk(rel_probs_flat, topk).indices  # Get the indices of the top-k probabilities
+        
+        # Convert flat indices back to object and relationship indices
+        obj_rels_pred = torch.stack([topk_rel_indices // 13, topk_rel_indices % 13], dim=1).to(device)
+        
+        # Find the top-k predicted verbs
+        topk_verb_preds = torch.topk(verbs_out[i], topk).indices.unsqueeze(1).to(device)  # Get top-k verbs
+        
+        # Repeat each verb prediction for corresponding object-relationship pairs
+        verb_pred_repeated = topk_verb_preds.unsqueeze(1).repeat(1, obj_rels_pred.shape[0], 1).squeeze(1).to(device)
+        
+        # Combine verb, object, and relationship into triplets
+        triplets_pred.append(torch.cat((verb_pred_repeated, obj_rels_pred), dim=1))
     
     return triplets_pred
 
