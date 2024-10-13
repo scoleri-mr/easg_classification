@@ -40,3 +40,6 @@ recap_vae.txt
 denoised_videos/
 *.pth
 *.sh
+vae_final_plots/
+ev_VAE_auto.py
+training_log.txt
