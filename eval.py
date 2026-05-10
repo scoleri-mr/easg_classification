@@ -1,5 +1,5 @@
-from run_easg import EASGData
-from dataset import myEASGDataset
+from src.scripts.run_easg import EASGData
+from src.data.datasets.dataset import myEASGDataset
 from pathlib import Path
 from torch_geometric.loader import DataLoader
 from argparse import ArgumentParser

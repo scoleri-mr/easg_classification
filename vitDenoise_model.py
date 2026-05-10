@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from simple_vit import Transformer
-from dataset_video.dataset_video import EASGvideo
+from src.data.datasets.dataset_video.dataset_video import EASGvideo
 
 def extract(a, t, x_shape):
     batch_size = t.shape[0]
@@ -274,7 +274,7 @@ def main():
 
     # load the dataset and create random noise
     x_start = torch.randn((batch_size, sequence_length, feature_dim))
-    train_path = "easg_classification/dataset_video/encoded_videos_train_256.pth"
+    train_path = "src/data/datasets/dataset_video/encoded_videos_train_256.pth"
     train_dataset = EASGvideo(train_path)
     trainloader = DataLoader(train_dataset, batch_size=batch_size)
     t = torch.randint(0, timesteps, (batch_size,), device='cuda').long()

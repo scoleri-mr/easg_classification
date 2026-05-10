@@ -20,7 +20,7 @@ from torch_geometric.loader import DataLoader
 
 from vitDenoise_model import DenoiseViT, p_losses, positional_encoding, sample
 from utils_diffusion import linear_beta_schedule
-from dataset_video.dataset_video import EASGvideo
+from src.data.datasets.dataset_video.dataset_video import EASGvideo
 from utils import load_model, save_checkpoint
 
 from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
@@ -53,10 +53,10 @@ def parse_args():
     parser.add_argument('--fixed_frames', type=int, help="Number of frames that will be noise free in the diffusion model", default=5)
     parser.add_argument('--heads', type=int, help="Attention heads for the ViT", default=8)
     parser.add_argument('--depth', type=int, help="Number of attention blocks for the ViT", default=5)
-    parser.add_argument('--train_path', help="path for training dataset", default="./dataset_video/encoded_videos_train_256.pth")
-    parser.add_argument('--val_path', help="path for validation dataset", default="./dataset_video/encoded_videos_validation_256.pth")
-    parser.add_argument('--train_triplets_path', help="path for training triplets", default="./dataset_video/train_triplets.pth")
-    parser.add_argument('--val_triplets_path', help="path for validation triplets", default="./dataset_video/val_triplets.pth")
+    parser.add_argument('--train_path', help="path for training dataset", default="./src/data/datasets/dataset_video/encoded_videos_train_256.pth")
+    parser.add_argument('--val_path', help="path for validation dataset", default="./src/data/datasets/dataset_video/encoded_videos_validation_256.pth")
+    parser.add_argument('--train_triplets_path', help="path for training triplets", default="./src/data/datasets/dataset_video/train_triplets.pth")
+    parser.add_argument('--val_triplets_path', help="path for validation triplets", default="./src/data/datasets/dataset_video/val_triplets.pth")
     args = parser.parse_args()
     return args
 

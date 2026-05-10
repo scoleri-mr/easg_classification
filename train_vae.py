@@ -2,7 +2,7 @@ import os
 import os.path as osp
 import sys
 import numpy as np
-from dataset_ae import EASGDatasetAE
+from src.data.datasets.dataset_ae import EASGDatasetAE
 from pathlib import Path
 from torch_geometric.loader import DataLoader
 from argparse import ArgumentParser
