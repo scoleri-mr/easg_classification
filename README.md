@@ -38,3 +38,4 @@ The codebase has been **restructured into a clean package layout** and imports h
 - Clean up legacy path assumptions and add unit tests for data loaders.
 - Document model architecture details (layer sizes, loss functions) in separate design docs.
 - Continuous‑integration pipelines for automated testing.
+=======
