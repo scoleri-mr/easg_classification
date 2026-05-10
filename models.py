@@ -45,7 +45,7 @@ class myGNN(nn.Module):
         simply returning the elementwise max or mean between the two nodes that 
         form the edge    
     '''
-    def __init__(self, layer_type, input_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device):
+    def __init__(self, layer_type, input_dim, hidden_dim, output_dim, dropout_prob, edge_creation, device, num_heads=8):
         super().__init__()
         self.output_dim = output_dim
         self.device = device
@@ -59,11 +59,8 @@ class myGNN(nn.Module):
             self.conv1 = SAGEConv(input_dim, hidden_dim)
             self.conv2 = SAGEConv(hidden_dim, output_dim)
         elif layer_type=='gat':
-            self.conv1 = GATv2Conv(input_dim, hidden_dim)
-            self.conv2 = GATv2Conv(hidden_dim, output_dim)
-        elif layer_type=='gin':
-            self.conv1 = GINConv(input_dim, hidden_dim)
-            self.conv2 = GINConv(hidden_dim, output_dim)
+            self.conv1 = GATv2Conv(input_dim, hidden_dim // num_heads, heads=num_heads, concat=True, dropout=dropout_prob)
+            self.conv2 = GATv2Conv(hidden_dim, output_dim, heads=1, concat=True, dropout=dropout_prob)
         else:
             raise Exception('Wrong graph layer type')
         self.dropout = nn.Dropout(dropout_prob)

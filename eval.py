@@ -1,5 +1,5 @@
-from run_easg import EASGData
-from dataset import myEASGDataset
+from src.scripts.run_easg import EASGData
+from src.data.datasets.dataset import myEASGDataset
 from pathlib import Path
 from torch_geometric.loader import DataLoader
 from argparse import ArgumentParser
@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler
 from math import ceil
 import logging
+import pickle
 
 
 def parse_args():
@@ -35,7 +36,7 @@ def parse_args():
 from math import ceil
 import torch 
 
-def evaluation(dataset_val, model, device):
+def evaluation(dataset_val, model, device, dump_output=False):
     # NB: with significa with constraints (ovvero si vincola il grafo ad avere al massimo
     # una relazione object-verb), no significa No constraint (quindi niente vincolo sul 
     # numero di possibili relazioni.)
@@ -58,6 +59,7 @@ def evaluation(dataset_val, model, device):
     recall_sgcls_no = {k: [] for k in list_k}
     recall_easgcls_with = {k: [] for k in list_k}
     recall_easgcls_no = {k: [] for k in list_k}
+    verbs_predictions = []
     for idx in range(len(dataset_val)):
         graph = dataset_val[idx].to(device)
 
@@ -65,6 +67,7 @@ def evaluation(dataset_val, model, device):
             logits_edges, logits_verb, logits_objs = model(graph.x, graph.edge_index)
             scores_verb = logits_verb[0].detach().cpu().softmax(dim=0).to(device)
             scores_objs = logits_objs.detach().cpu().softmax(dim=1).to(device)
+            verbs_predictions.append(scores_verb)
             scores_rels = logits_edges.detach().cpu().sigmoid().to(device)
 
         verb_idx = dataset_val.get_verb_index(idx).to(device)
@@ -202,6 +205,10 @@ def evaluation(dataset_val, model, device):
         recall_easgcls_with[k] = sum(recall_easgcls_with[k]) / len(recall_easgcls_with[k])*100
         recall_easgcls_no[k] = sum(recall_easgcls_no[k]) / len(recall_easgcls_no[k])*100
 
+    if dump_output:
+        with open('easg_verb_output', 'wb') as fp:
+            pickle.dump(verbs_predictions,fp)
+    
     return recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no
 
 def main():

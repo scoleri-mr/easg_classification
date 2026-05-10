@@ -1,5 +1,5 @@
-from run_easg import EASGData
-from dataset import myEASGDataset
+from src.scripts.run_easg import EASGData
+from src.data.datasets.dataset import myEASGDataset
 from pathlib import Path
 from torch_geometric.loader import DataLoader
 from argparse import ArgumentParser
@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument('--dropout_prob', type=float, default=0.2, help='dropout probability for gnn layers')
     parser.add_argument('--wandb', dest='wandb', action='store_true')
     parser.add_argument('--no-wandb', dest='wandb', action='store_false')
-    parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat, gin')
+    parser.add_argument('--graph_type', type=str, default='gcn', help='choose between graph layers: gcn, sage, gat')
     parser.set_defaults(wandb=True) 
     args = parser.parse_args()
     return args
@@ -58,9 +58,10 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
           proj_dim, hidden_dim, output_dim, 
           wandb_log, edge_criterion, graph_type, lr_start):
     
+    exp_name = f'EASGcls_{graph_type}_{proj_dim}_{hidden_dim}_{output_dim}_{lr_start}'
     model = model.to(device)
-    if wandb_log: 
-        wandb.init(project = f'easg_classification_{graph_type}', config = config)
+    if wandb_log:  
+        wandb.init(project = f'easg_classification_{graph_type}', config = config, name=exp_name)
         wandb.watch(model, log="all")
     
     loss_l1 = []
@@ -93,9 +94,11 @@ def train(train_dataset, train_loader, validation_dataset, model, optimizer, sch
         
         # average loss for the epoch
         average_loss = total_loss / count   # correct with batch_size = 1
+        dump_output = False
         if num_epochs >= 20:
             if epoch%10 == 0:
-                recalls = evaluation(validation_dataset, model, device)
+                if epoch+1==num_epochs: dump_output=True
+                recalls = evaluation(validation_dataset, model, device, dump_output)
                 recall_predcls_with, recall_predcls_no, recall_sgcls_with, recall_sgcls_no, recall_easgcls_with, recall_easgcls_no = recalls
                 recalls_dict = {
                     'recall_predcls_with': recall_predcls_with,
